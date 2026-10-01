@@ -152,6 +152,7 @@ and bug-report requirements. Development shortcuts are under
 - [Campaign route audit](docs/CAMPAIGN_RUN_AUDIT.md) and [known issues](docs/KNOWN_ISSUES.md)
 - [Validation](docs/VALIDATION.md) and [save behavior](docs/SAVES.md)
 - [Release preparation](docs/RELEASE_PLAN.md)
+- [Code signing policy and privacy](docs/CODE_SIGNING.md) — application preparation; current preview unsigned
 - [Earlier development notes](docs/DEVELOPMENT_HISTORY.md)
 
 ## License and independence
