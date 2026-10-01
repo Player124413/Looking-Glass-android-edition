@@ -10,9 +10,14 @@ engine with guided setup, configurable controller support and modern display
 options. It uses your own compatible game files and runs independently of the
 original game executable, gameplay DLL and Alice: Madness Returns.
 
-**[Download and play the full campaign — Windows x64](https://github.com/skulitom/LookingGlass/releases/tag/v0.32.0-preview.1)** ·
+**[Download for Windows — play the full campaign](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Windows-x64-v0.32.0-preview.1.zip)** ·
 [Watch the 54-second showcase](#gameplay-showcase) ·
 [Report a bug](https://github.com/skulitom/LookingGlass/issues/new/choose)
+
+**One download, three steps:** save the ZIP (10.4 MB), choose **Extract All**,
+then open **Launch.cmd** in the extracted LookingGlass folder. Guided setup
+handles the separate game files. The link above downloads the right Windows
+package directly; no need to choose from a release file list.
 
 This is an experimental prerelease, with remaining fidelity and device-testing gaps.
 The project includes no original game data. You need your own compatible copy.
@@ -95,8 +100,7 @@ Full videos are 720p. [Recording details](docs/media/gameplay/README.md).
 
 ## Install and play
 
-1. Download the **[Windows x64 preview ZIP](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Windows-x64-v0.32.0-preview.1.zip)**. Choose
-   the Windows package, not GitHub's **Source code** ZIP.
+1. **[Download for Windows](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Windows-x64-v0.32.0-preview.1.zip)** (10.4 MB). This downloads the one ZIP you need.
 2. Right-click the ZIP, choose **Extract All**, and open the extracted folder.
    Keep it somewhere writable, such as `Documents\LookingGlass`.
 3. Double-click **Launch.cmd**. On the first launch, a setup window finds existing
