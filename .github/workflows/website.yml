@@ -33,6 +33,15 @@ jobs:
           mkdir -p _site/media
           cp docs/site/index.html docs/site/styles.css docs/site/favicon.svg docs/site/sitemap.xml _site/
           cp docs/media/gameplay/dry-landing.mp4 docs/media/gameplay/pool-of-tears.mp4 docs/media/gameplay/pale-realm.mp4 _site/media/
+          cp docs/media/gameplay/story-poster.jpg _site/media/
+      - name: Fetch verified story videos
+        run: |
+          curl --fail --location --retry 3 --output "_site/media/LookingGlass-Story-Showcase.mp4" "https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Story-Showcase.mp4"
+          echo "fa65cbb2d40f7306cd0b5b7580e0a2ce9d4fca063eb8c01d1e51c220c67585ac  _site/media/LookingGlass-Story-Showcase.mp4" | sha256sum --check --strict
+          curl --fail --location --retry 3 --output "_site/media/LookingGlass-Chapter-1-Dementia.mp4" "https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Chapter-1-Dementia.mp4"
+          echo "70a15d0f0e83b7607c9fe6af944d851d3392c286b4edff7e5a832d120a8b467f  _site/media/LookingGlass-Chapter-1-Dementia.mp4" | sha256sum --check --strict
+          curl --fail --location --retry 3 --output "_site/media/LookingGlass-Chapter-2-Pandemonium.mp4" "https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Chapter-2-Pandemonium.mp4"
+          echo "ef69a1100ddd373f3c41d1ee91744585b68a48b365280e14998be60232e493f1  _site/media/LookingGlass-Chapter-2-Pandemonium.mp4" | sha256sum --check --strict
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

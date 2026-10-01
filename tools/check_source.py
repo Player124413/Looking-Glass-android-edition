@@ -22,6 +22,8 @@ SITE_FILES = {
 # User-requested README footage. Exact files/content only, never a general
 # allowance for original game assets or raw research captures.
 GAMEPLAY_MEDIA = {
+    "docs/media/gameplay/story-preview.gif": "697ceef7f8108cbfd3521c7892b9db5a9a6da8a79eb169aefac346547440db5d",
+    "docs/media/gameplay/story-poster.jpg": "51c96dff0690f5908a786cfe2b4eed7453db79fea8c89e9d364a64f47037eeed",
     "docs/media/gameplay/dry-landing.mp4": "e04e476846a5e12b947ffba3616eefd5a8759d82cbd927182c9d0dc3d2da08fe",
     "docs/media/gameplay/dry-landing.gif": "b1fca02df8d1714c007d00932f644c778fafd69d9883475129135cc7049bd6c4",
     "docs/media/gameplay/pool-of-tears.mp4": "5840a570947d79472e9b4087344f06a3d35110fdf1d64f9c29b9826f49f4dc2b",

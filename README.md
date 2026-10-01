@@ -12,7 +12,7 @@ original game executable, gameplay DLL and Alice: Madness Returns.
 
 [Visit the Looking Glass website](https://skulitom.github.io/LookingGlass/) ·
 **[Download for Windows — play the full campaign](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Windows-x64-v0.32.0-preview.1.zip)** ·
-[Watch the 54-second showcase](#gameplay-showcase) ·
+[Watch the 78-second story showcase](#gameplay-showcase) ·
 [Report a bug](https://github.com/skulitom/LookingGlass/issues/new/choose)
 
 **One download, three steps:** save the ZIP (10.4 MB), choose **Extract All**,
@@ -25,13 +25,23 @@ The project includes no original game data. You need your own compatible copy.
 
 ## Gameplay showcase
 
-[![Watch the assembled Looking Glass showcase: American McGee's Alice gameplay, controller and display options, and guided setup](docs/media/gameplay/dry-landing.gif)](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Preview-Showcase.mp4)
+[![Watch the story and gameplay showcase: Cheshire, the Rabbit and Pandemonium's minecart](docs/media/gameplay/story-preview.gif)](https://skulitom.github.io/LookingGlass/#showcase)
 
-**[Watch or download the assembled 54-second video](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Preview-Showcase.mp4)**
+**[Watch the new 78-second showcase in your browser](https://skulitom.github.io/LookingGlass/#showcase)** ·
+[Download the video](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Story-Showcase.mp4)
 
-Combat and exploration, controller and display menus, and the three-step setup
-in one showcase. Actual Windows preview footage at normal speed, with captions;
-720p, 30 fps. **This recording is silent.**
+Cutscenes from the **first two chapters — Dementia and Pandemonium** lead into
+combat and exploration. Meet the Rabbit and Cheshire Cat, collect the Vorpal
+Blade, hear the Gnome's warning through subtitles, and take the minecart ride.
+Actual in-engine footage at normal speed, edited with titles and transitions;
+720p, 30 fps. **The recordings are silent; dialogue subtitles are enabled.**
+
+Want more of the opening story? Two separate one-minute edits:
+
+- **[Chapter 1: Dementia](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Chapter-1-Dementia.mp4)** — Alice's arrival, Cheshire, the Blade and the little door.
+- **[Chapter 2: Pandemonium](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Chapter-2-Pandemonium.mp4)** — the Gnome's warning and the minecart sequence.
+
+[Recording and editing details](docs/media/gameplay/README.md#story-and-opening-chapter-videos).
 
 ## Why try Looking Glass?
 
