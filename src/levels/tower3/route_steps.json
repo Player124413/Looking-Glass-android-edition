@@ -1,0 +1,880 @@
+[
+  {
+    "pos": [
+      6.315,
+      2880,
+      0
+    ],
+    "mode": "phase",
+    "frames": 1
+  },
+  {
+    "pos": [
+      -1,
+      0,
+      0
+    ],
+    "mode": "fall",
+    "save": "fall-one"
+  },
+  {
+    "pos": [
+      1140,
+      2420,
+      584
+    ]
+  },
+  {
+    "pos": [
+      1060,
+      2280,
+      608
+    ],
+    "mode": "jump",
+    "save": "grinder"
+  },
+  {
+    "pos": [
+      864,
+      2190,
+      608
+    ]
+  },
+  {
+    "pos": [
+      752,
+      2130,
+      640
+    ],
+    "mode": "jump",
+    "save": "column-one"
+  },
+  {
+    "pos": [
+      720,
+      2000,
+      704
+    ],
+    "mode": "jump"
+  },
+  {
+    "pos": [
+      880,
+      1880,
+      704
+    ],
+    "save": "column-two"
+  },
+  {
+    "pos": [
+      985,
+      1825,
+      768
+    ],
+    "mode": "jump",
+    "save": "column-three"
+  },
+  {
+    "pos": [
+      19,
+      20,
+      0
+    ],
+    "mode": "phase",
+    "frames": 46
+  },
+  {
+    "pos": [
+      925,
+      1730,
+      768
+    ]
+  },
+  {
+    "pos": [
+      850,
+      1610,
+      880
+    ],
+    "mode": "jump",
+    "save": "lift-six-low"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1020
+    ],
+    "mode": "rise",
+    "save": "lift-six-high"
+  },
+  {
+    "pos": [
+      560,
+      1660,
+      990
+    ],
+    "mode": "air"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 75,
+    "save": "lift-three-air"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1060
+    ],
+    "mode": "rise",
+    "save": "lift-three-high"
+  },
+  {
+    "pos": [
+      425,
+      1830,
+      1060
+    ]
+  },
+  {
+    "pos": [
+      320,
+      1960,
+      952
+    ],
+    "mode": "air"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 60,
+    "save": "shelf-one"
+  },
+  {
+    "pos": [
+      1.0,
+      8,
+      0
+    ],
+    "mode": "phase",
+    "frames": 47
+  },
+  {
+    "pos": [
+      390,
+      1780,
+      970
+    ],
+    "mode": "air"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 20,
+    "save": "return-three"
+  },
+  {
+    "pos": [
+      440,
+      1630,
+      1040
+    ]
+  },
+  {
+    "pos": [
+      450,
+      1500,
+      1050
+    ],
+    "mode": "air"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 50,
+    "save": "main-six"
+  },
+  {
+    "pos": [
+      540,
+      1460,
+      1050
+    ]
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1160
+    ],
+    "mode": "rise",
+    "save": "main-six-top"
+  },
+  {
+    "pos": [
+      420,
+      1260,
+      1160
+    ]
+  },
+  {
+    "pos": [
+      380,
+      1180,
+      1040
+    ],
+    "mode": "air"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 60,
+    "save": "main-three"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1120
+    ],
+    "mode": "rise"
+  },
+  {
+    "pos": [
+      180,
+      900,
+      1104
+    ],
+    "mode": "air"
+  },
+  {
+    "pos": [
+      80,
+      860,
+      1104
+    ]
+  },
+  {
+    "pos": [
+      0,
+      760,
+      1104
+    ]
+  },
+  {
+    "pos": [
+      40,
+      620,
+      1104
+    ]
+  },
+  {
+    "pos": [
+      144,
+      550,
+      1104
+    ],
+    "save": "room-two"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "room",
+    "frames": 2
+  },
+  {
+    "pos": [
+      280,
+      600,
+      1104
+    ]
+  },
+  {
+    "pos": [
+      380,
+      690,
+      1120
+    ]
+  },
+  {
+    "pos": [
+      450,
+      704,
+      1120
+    ],
+    "save": "room-two-edge"
+  },
+  {
+    "pos": [
+      1,
+      0,
+      0
+    ],
+    "mode": "fall",
+    "save": "fall-two"
+  },
+  {
+    "pos": [
+      4.5,
+      6,
+      0
+    ],
+    "mode": "phase",
+    "frames": 51
+  },
+  {
+    "pos": [
+      0,
+      -50,
+      16
+    ],
+    "mode": "board",
+    "frames": 49,
+    "save": "pedal-one"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1090
+    ],
+    "mode": "rise",
+    "save": "pedal-one-top"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 120
+  },
+  {
+    "pos": [
+      0,
+      0,
+      16
+    ],
+    "mode": "board",
+    "frames": 2
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 60
+  },
+  {
+    "pos": [
+      0.5,
+      6,
+      0
+    ],
+    "mode": "phase",
+    "frames": 1
+  },
+  {
+    "pos": [
+      1104,
+      1104,
+      784
+    ],
+    "mode": "jump",
+    "save": "low-west"
+  },
+  {
+    "pos": [
+      0,
+      20,
+      16
+    ],
+    "mode": "board",
+    "frames": 59,
+    "save": "pendulum"
+  },
+  {
+    "pos": [
+      1584,
+      1104,
+      784
+    ],
+    "mode": "jump",
+    "save": "low-east"
+  },
+  {
+    "pos": [
+      1600,
+      1070,
+      784
+    ]
+  },
+  {
+    "pos": [
+      0,
+      6,
+      0
+    ],
+    "mode": "phase",
+    "frames": 54
+  },
+  {
+    "pos": [
+      0,
+      0,
+      16
+    ],
+    "mode": "board",
+    "frames": 52
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 60
+  },
+  {
+    "pos": [
+      3.8,
+      6,
+      0
+    ],
+    "mode": "phase",
+    "frames": 54
+  },
+  {
+    "pos": [
+      50,
+      0,
+      16
+    ],
+    "mode": "board",
+    "frames": 145,
+    "save": "lift-five"
+  },
+  {
+    "pos": [
+      1640,
+      485,
+      1000
+    ]
+  },
+  {
+    "pos": [
+      1560,
+      490,
+      990
+    ],
+    "save": "five-safe"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1150
+    ],
+    "mode": "rise",
+    "save": "five-top-safe"
+  },
+  {
+    "pos": [
+      130,
+      0,
+      -288
+    ],
+    "mode": "board",
+    "frames": 39,
+    "save": "cage-low"
+  },
+  {
+    "pos": [
+      6,
+      18,
+      0
+    ],
+    "mode": "phase",
+    "frames": 56
+  },
+  {
+    "pos": [
+      1200,
+      490,
+      1216
+    ]
+  },
+  {
+    "pos": [
+      30,
+      20,
+      16
+    ],
+    "mode": "board",
+    "frames": 55
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 60
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1470
+    ],
+    "mode": "rise",
+    "save": "pedal-upper"
+  },
+  {
+    "pos": [
+      1,
+      18,
+      0
+    ],
+    "mode": "phase",
+    "frames": 56
+  },
+  {
+    "pos": [
+      1220,
+      490,
+      1504
+    ],
+    "mode": "jump",
+    "save": "cage-top"
+  },
+  {
+    "pos": [
+      10.5,
+      12,
+      0
+    ],
+    "mode": "phase",
+    "frames": 25
+  },
+  {
+    "pos": [
+      1510,
+      505,
+      1504
+    ]
+  },
+  {
+    "pos": [
+      -225,
+      -60,
+      30
+    ],
+    "mode": "board",
+    "frames": 25
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 30
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1690
+    ],
+    "mode": "rise",
+    "save": "medium-top"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 180,
+    "save": "medium-east"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 60,
+    "save": "gear-east-edge"
+  },
+  {
+    "pos": [
+      2340,
+      640,
+      1624
+    ],
+    "mode": "jump",
+    "save": "east-balcony"
+  },
+  {
+    "pos": [
+      2496,
+      580,
+      1624
+    ],
+    "save": "checkpoint-east"
+  },
+  {
+    "pos": [
+      2684,
+      768,
+      1624
+    ],
+    "save": "room-three"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "room",
+    "frames": 3
+  },
+  {
+    "pos": [
+      2670,
+      940,
+      1624
+    ]
+  },
+  {
+    "pos": [
+      0,
+      1,
+      0
+    ],
+    "mode": "fall",
+    "save": "fall-three"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "room",
+    "frames": 3
+  },
+  {
+    "pos": [
+      10,
+      24,
+      0
+    ],
+    "mode": "phase",
+    "frames": 27
+  },
+  {
+    "pos": [
+      0,
+      0,
+      24
+    ],
+    "mode": "board",
+    "frames": 139
+  },
+  {
+    "pos": [
+      0,
+      0,
+      0
+    ],
+    "mode": "wait",
+    "frames": 30
+  },
+  {
+    "pos": [
+      2330,
+      1165,
+      1590
+    ],
+    "save": "four-edge"
+  },
+  {
+    "pos": [
+      2140,
+      1410,
+      1544
+    ],
+    "mode": "jump",
+    "save": "big-flat"
+  },
+  {
+    "pos": [
+      2150,
+      1650,
+      1552
+    ]
+  },
+  {
+    "pos": [
+      2070,
+      1850,
+      1552
+    ]
+  },
+  {
+    "pos": [
+      0,
+      20,
+      0
+    ],
+    "mode": "holdphase",
+    "frames": 154
+  },
+  {
+    "pos": [
+      40,
+      0,
+      16
+    ],
+    "mode": "board",
+    "frames": 155,
+    "save": "gear-platform"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1770
+    ],
+    "mode": "rise",
+    "save": "gear-platform-top"
+  },
+  {
+    "pos": [
+      2060,
+      1980,
+      1770
+    ],
+    "save": "platform-edge"
+  },
+  {
+    "pos": [
+      0,
+      0,
+      1785
+    ],
+    "mode": "rise"
+  },
+  {
+    "pos": [
+      1940,
+      1980,
+      1850
+    ],
+    "mode": "jump",
+    "save": "vertical-gear"
+  },
+  {
+    "pos": [
+      -0.3,
+      0,
+      0
+    ],
+    "mode": "input",
+    "frames": 45
+  },
+  {
+    "pos": [
+      0,
+      0,
+      2000
+    ],
+    "mode": "rise",
+    "save": "gear-crown"
+  },
+  {
+    "pos": [
+      1970,
+      1810,
+      2040
+    ],
+    "mode": "precise",
+    "save": "ratchet"
+  },
+  {
+    "pos": [
+      1970,
+      2100,
+      2190
+    ],
+    "save": "ratchet-slope"
+  },
+  {
+    "pos": [
+      1970,
+      2280,
+      2250
+    ],
+    "save": "ratchet-end"
+  },
+  {
+    "pos": [
+      1770,
+      2360,
+      2176
+    ],
+    "mode": "jump",
+    "save": "exit-balcony"
+  },
+  {
+    "pos": [
+      1710,
+      2460,
+      2176
+    ]
+  },
+  {
+    "pos": [
+      1616,
+      2512,
+      2176
+    ]
+  }
+]

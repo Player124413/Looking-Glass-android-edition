@@ -1,0 +1,30 @@
+name: Windows checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit public source
+        run: python tools/check_source.py --worktree
+      - name: Test packaging and setup with synthetic data
+        run: |
+          python -m unittest discover -s tools -p test_source_package.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tools -p test_setup.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tools -p test_windows_setup.py
+          exit $LASTEXITCODE
+      - name: Rust unit tests (no game data)
+        run: cargo test --locked

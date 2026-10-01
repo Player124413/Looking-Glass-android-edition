@@ -1,0 +1,31 @@
+[package]
+name = "looking-glass"
+version = "0.32.0"
+edition = "2021"
+rust-version = "1.86"
+publish = false
+description = "Local Rust compatibility research for user-supplied Alice game data"
+
+[dependencies]
+anyhow = "1.0"
+macroquad = "=0.4.14"
+zip = { version = "=0.6.6", default-features = false, features = ["deflate"] }
+image = { version = "=0.24.9", default-features = false, features = ["tga", "jpeg", "png"] }
+# Macroquad's newer fontdue patch needs a newer compiler than the user's Rust 1.86.
+fontdue = "=0.9.3"
+# Independent WAV/MP3 playback; does not load the game's Miles DLLs.
+rodio = { version = "=0.20.1", default-features = false, features = ["wav", "symphonia-mp3"] }
+hound = "=3.5.1"
+# Symphonia metadata's latest encoding_rs patch requires Rust 1.88.
+encoding_rs = "=0.8.35"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.145", features = ["float_roundtrip"] }
+# Enable serialization on the same math types used by Macroquad.
+glam = { version = "=0.27.0", features = ["serde"] }
+sha2 = "=0.10.9"
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+lto = "thin"

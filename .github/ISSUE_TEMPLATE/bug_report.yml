@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible Looking Glass problem
+body:
+  - type: markdown
+    attributes:
+      value: Please check the known issues first. Do not attach game archives, original scripts, decompiler output or personal saves. Remove private paths from any diagnostic excerpts.
+  - type: input
+    id: version
+    attributes:
+      label: Build or version
+      description: Include the release version or development build identifier.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows version and graphics hardware
+  - type: input
+    id: location
+    attributes:
+      label: Map, visit and difficulty
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Say whether this begins with a new game, chapter selection or a loaded save.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
