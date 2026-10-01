@@ -26,6 +26,8 @@ When releasing an update, review the download URL, version, size, requirements
 and release-note URL in `docs/site/index.html`. Keep the preview description
 consistent with the README and known issues. Verify desktop and mobile layout,
 video playback, keyboard navigation, disclosures and the download destination.
+When changing the theme, update the stylesheet/favicon version query in the
+HTML so returning visitors receive matching styles instead of a cached theme.
 
 For local preview, copy the four `docs/site/` files into a temporary folder.
 Populate its `media/` subfolder with the same approved files as the workflow,
