@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Looking Glass — American McGee's Alice in a new engine</title>
   <meta name="description" content="Return to American McGee's Alice with Looking Glass, an unofficial open-source engine recreation. Download the Windows preview with guided setup, controller support and the full campaign.">
-  <meta name="theme-color" content="#14231f">
+  <meta name="theme-color" content="#181a13">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Looking Glass — return to Wonderland">
   <meta property="og:description" content="American McGee's Alice in a new open-source engine. Windows preview, guided setup and controller support. Requires separate compatible game files.">
@@ -29,11 +29,11 @@
       </nav>
     </header>
 
-    <main id="main">
+    <main id="main" tabindex="-1">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
           <p class="game-name">American McGee’s Alice, revisited.</p>
-          <h1 id="hero-title">Through the<br>Looking Glass.</h1>
+          <h1 id="hero-title"><span class="title-prelude">Through the</span>Looking<br><span class="title-last">Glass.</span></h1>
           <p class="intro">Return to Wonderland in a new, open-source engine. The original world, with guided setup, flexible controls and room to keep improving.</p>
           <a class="download" href="https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Windows-x64-v0.32.0-preview.1.zip">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>
@@ -44,6 +44,15 @@
         </div>
         <figure class="hero-footage" id="showcase">
           <div class="mirror-frame">
+            <svg class="mirror-crest" viewBox="0 0 280 80" fill="none" aria-hidden="true" focusable="false">
+              <path d="M140 68C115 68 108 36 86 38C69 39 67 58 79 59C91 60 94 46 82 45M140 68C165 68 172 36 194 38C211 39 213 58 201 59C189 60 186 46 198 45M79 59C48 70 36 32 10 52M201 59C232 70 244 32 270 52M140 60C119 42 116 25 128 20C134 17 138 23 140 27C142 23 146 17 152 20C164 25 161 42 140 60Z"/>
+              <path d="M140 9L146 15L140 21L134 15ZM52 53C45 42 47 30 60 29C58 40 54 46 52 53ZM228 53C235 42 233 30 220 29C222 40 226 46 228 53Z"/>
+              <path d="M14 65H113M167 65H266M123 73H157"/>
+            </svg>
+            <span class="frame-corner top-left" aria-hidden="true"></span>
+            <span class="frame-corner top-right" aria-hidden="true"></span>
+            <span class="frame-corner bottom-left" aria-hidden="true"></span>
+            <span class="frame-corner bottom-right" aria-hidden="true"></span>
             <video controls playsinline preload="metadata" poster="media/story-poster.jpg" width="1280" height="720" aria-label="Looking Glass story and gameplay showcase, 78 seconds, silent with in-game dialogue subtitles">
               <source src="media/LookingGlass-Story-Showcase.mp4" type="video/mp4">
               <a href="media/LookingGlass-Story-Showcase.mp4">Watch the story and gameplay showcase</a>.
