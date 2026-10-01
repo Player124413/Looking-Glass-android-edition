@@ -1,5 +1,12 @@
 # Gameplay recordings
 
+**This project is not endorsed by or affiliated with EA or its licensors.**
+American McGee's Alice is an EA property. The original artwork, characters,
+dialogue, cinematics and other game content shown in these recordings remain
+with EA and/or their respective rights holders. Looking Glass claims no
+ownership of those assets and grants no licence to reuse them. All gameplay
+media is excluded from MIT. See the [rights notice](../../../LEGAL.md).
+
 Recorded on 1 October 2026 from the Windows preview, using ordinary controller
 and keyboard input in a separate session with isolated saves. These are short
 gameplay excerpts, not evidence of completing these levels. No cheats, staged

@@ -10,10 +10,13 @@ Do not add original game archives, executables, assets, scripts, subtitles,
 transcripts or decompiler dumps. Keep local research and captures in ignored
 `private/`. Do not upload these materials or personal saves to public issues.
 
-The six curated README media files listed in `tools/check_source.py` are the
+The exact curated README media files listed in `tools/check_source.py` are the
 explicit exception for gameplay publicity. Their content hashes are checked;
 this does not allow arbitrary captures or original asset files. See
 [recording details](docs/media/gameplay/README.md). Footage is excluded from MIT.
+Inclusion in the project's media allowlist is an internal distribution check,
+not permission from EA or another rights holder. Original game rights remain
+with EA and their respective owners; see the [rights notice](LEGAL.md).
 The separately curated preview-showcase release attachment is documented there
 with its exact hash; it does not expand the source-tree media allowlist.
 

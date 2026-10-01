@@ -37,6 +37,13 @@ The [file listing](https://archive.org/download/alice_202106) and its archive
 metadata were checked on **1 October 2026**. Use files you are entitled to use.
 Original game data is downloaded separately and is never bundled in the engine ZIP.
 
+The optional download is hosted by that third-party service, not by Looking Glass.
+Its availability and setup's checks do not establish redistribution permission
+or your entitlement to use the files. Only download or import data you are
+authorised to use. EA and the respective rights holders retain the original
+game rights; Looking Glass claims none of them. This project is not endorsed by
+or affiliated with EA or its licensors. See the [rights notice](../LEGAL.md).
+
 For a manual download, select that exact `.7z` file under **Show all**. You do not
 need the torrent, pictures or metadata files. In setup, use **Choose archive** and
 select the downloaded file. You can also drag it onto **Setup.cmd**.

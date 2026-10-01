@@ -6,7 +6,7 @@ from pathlib import Path
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PLAYER_FILES = ('Launch.cmd', 'Setup.cmd', 'tools/windows_setup.ps1', 'LICENSE-MIT',
+PLAYER_FILES = ('Launch.cmd', 'Setup.cmd', 'tools/windows_setup.ps1', 'LICENSE-MIT', 'LEGAL.md',
                 'docs/INSTALL.md', 'docs/KNOWN_ISSUES.md', 'docs/CONTROLS.md',
                 'docs/CAMPAIGN_RUN_AUDIT.md', 'docs/SAVES.md')
 QUICK_START = r"""LOOKING GLASS - WINDOWS PREVIEW
@@ -28,6 +28,8 @@ Use files you are entitled to use. The engine ZIP includes no original game data
 Setup can fetch Alice1_2011_vanilla.7z from:
 https://archive.org/details/alice_202106
 Or use Choose archive / Choose folder for existing English 2011 vanilla files.
+That download is hosted by a third party, not this project. Its availability
+and setup's checks do not establish permission to download or use it.
 
 SAVES AND UPDATES
 Saves, settings and imported files are in private/. Keep a backup. Install a new
@@ -42,8 +44,11 @@ and checksum if Windows flags an unknown publisher. Do not disable security.
 Esc: menu. F5/F9: quick save/load. Controls can be changed in Settings.
 Use normal exits for campaign progress; Tab's chapter chooser starts a new visit.
 
-This independent project is not an official or endorsed release.
-See LICENSE-MIT and THIRD_PARTY_NOTICES.txt for component notices.
+This project is not endorsed by or affiliated with EA or its licensors.
+American McGee's Alice is an Electronic Arts property. Original game assets
+and trademarks remain with EA and/or their respective rights holders.
+Looking Glass claims no ownership of them and grants no licence to them.
+See LEGAL.md, LICENSE-MIT and THIRD_PARTY_NOTICES.txt for rights and notices.
 """
 
 

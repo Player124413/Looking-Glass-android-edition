@@ -21,7 +21,10 @@ handles the separate game files. The link above downloads the right Windows
 package directly; no need to choose from a release file list.
 
 This is an experimental preview, with remaining fidelity and device-testing gaps.
-The project includes no original game data. You need your own compatible copy.
+The engine download includes no original game data. You need compatible files
+you are entitled to use. **American McGee's Alice belongs to EA; original game
+content remains with EA and its respective rights holders.** Looking Glass claims
+no ownership of that content. [Rights and distribution notice](LEGAL.md).
 
 ## Gameplay showcase
 
@@ -133,6 +136,10 @@ Setup can download it for you, or you can use **Choose archive** / **Choose fold
 for files you already have. Use game files you are entitled to use. Original game
 data is not included in the Looking Glass release.
 
+That download is hosted by a third party, not this project. Its availability
+and setup's integrity checks do not establish permission to download or use it.
+See the [game-data and media notice](LEGAL.md#what-the-project-distributes).
+
 See [installation and troubleshooting](docs/INSTALL.md), including updates and
 building from source. [Release notes and checksums](https://github.com/skulitom/LookingGlass/releases/tag/v0.32.0-preview.1)
 describe the exact package and its verification limits.
@@ -171,5 +178,8 @@ and bug-report requirements. Development shortcuts are under
 Newly authored source and documentation use the [MIT license](LICENSE-MIT).
 Original game assets, gameplay footage and third-party components are excluded
 from that license.
-This project is independent and is not an official or endorsed release.
-See [LEGAL.md](LEGAL.md) for the existing provenance and distribution assessment.
+**This project is not endorsed by or affiliated with EA or its licensors.**
+EA and the respective rights holders retain all rights in the original game,
+its assets and trademarks. The project hosts no playable original game-data
+packages; published gameplay footage is described separately in the
+[rights, ownership and distribution notice](LEGAL.md).
