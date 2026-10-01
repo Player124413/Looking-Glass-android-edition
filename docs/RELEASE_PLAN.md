@@ -46,9 +46,14 @@ unsigned. The release notes identify the compiler and verification evidence.
 - Windows CI runs source-boundary, synthetic setup/package and Rust unit checks.
   It does not download original game data or publish releases automatically.
 
-[Known issues](KNOWN_ISSUES.md) accompany this preview. Keep releases marked as
-prereleases until broader player/device and fidelity validation supports a stable
-release. Steam publicity is prepared separately as a draft for the owner to review.
+[Known issues](KNOWN_ISSUES.md) accompany this preview. At the owner's request,
+the Windows preview is listed as GitHub's **Latest** release so it appears in the
+repository's Releases sidebar and at `/releases/latest`. GitHub requires clearing
+its prerelease flag for this placement. The tag, title and player documentation
+continue to identify it as an **experimental preview**; broader player/device and
+fidelity validation are still needed before describing it as stable. This listing
+change does not replace the tested Windows package or change its checksum.
+Steam publicity is prepared separately as a draft for the owner to review.
 
 ## Future release checks
 

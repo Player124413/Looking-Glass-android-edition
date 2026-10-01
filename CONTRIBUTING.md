@@ -1,6 +1,6 @@
 # Contributing to Looking Glass
 
-Looking Glass is an experimental public prerelease. Please
+Looking Glass is an experimental public preview. Please
 read the README and known issues before changing behavior or reporting a bug.
 
 ## Source boundary

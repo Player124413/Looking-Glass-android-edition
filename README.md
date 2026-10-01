@@ -19,7 +19,7 @@ then open **Launch.cmd** in the extracted LookingGlass folder. Guided setup
 handles the separate game files. The link above downloads the right Windows
 package directly; no need to choose from a release file list.
 
-This is an experimental prerelease, with remaining fidelity and device-testing gaps.
+This is an experimental preview, with remaining fidelity and device-testing gaps.
 The project includes no original game data. You need your own compatible copy.
 
 ## Gameplay showcase
