@@ -106,6 +106,15 @@ class SourcePackageTests(unittest.TestCase):
                 with zipfile.ZipFile(output) as z:
                     self.assertEqual(z.read("looking-glass/" + name), sample)
 
+    def test_website_allowance_does_not_admit_unreviewed_assets(self):
+        for path in ["docs/site/index.html", "docs/site/styles.css",
+                     "docs/site/favicon.svg", "docs/site/sitemap.xml"]:
+            self.assertTrue(allowed(path), path)
+            self.assertTrue(audit_data(path, b"unreviewed\0binary"), path)
+        for path in ["docs/site/data.pk3", "docs/site/extra.html",
+                     "docs/site/extra.svg", "docs/site/media/capture.mp4"]:
+            self.assertFalse(allowed(path), path)
+
 
 if __name__ == "__main__":
     unittest.main()

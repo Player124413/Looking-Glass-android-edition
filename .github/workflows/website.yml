@@ -1,0 +1,51 @@
+name: Publish website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/site/**
+      - docs/media/gameplay/**
+      - tools/check_source.py
+      - .github/workflows/website.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify public source and curated footage
+        run: python tools/check_source.py --worktree
+      - uses: actions/configure-pages@v5
+      - name: Assemble static site
+        run: |
+          mkdir -p _site/media
+          cp docs/site/index.html docs/site/styles.css docs/site/favicon.svg docs/site/sitemap.xml _site/
+          cp docs/media/gameplay/dry-landing.mp4 docs/media/gameplay/pool-of-tears.mp4 docs/media/gameplay/pale-realm.mp4 _site/media/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish
+        id: deployment
+        uses: actions/deploy-pages@v4

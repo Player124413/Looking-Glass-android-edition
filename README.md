@@ -10,6 +10,7 @@ engine with guided setup, configurable controller support and modern display
 options. It uses your own compatible game files and runs independently of the
 original game executable, gameplay DLL and Alice: Madness Returns.
 
+[Visit the Looking Glass website](https://skulitom.github.io/LookingGlass/) ·
 **[Download for Windows — play the full campaign](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Windows-x64-v0.32.0-preview.1.zip)** ·
 [Watch the 54-second showcase](#gameplay-showcase) ·
 [Report a bug](https://github.com/skulitom/LookingGlass/issues/new/choose)

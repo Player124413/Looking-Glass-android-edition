@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Looking Glass — American McGee's Alice in a new engine</title>
+  <meta name="description" content="Return to American McGee's Alice with Looking Glass, an unofficial open-source engine recreation. Download the Windows preview with guided setup, controller support and the full campaign.">
+  <meta name="theme-color" content="#14231f">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Looking Glass — return to Wonderland">
+  <meta property="og:description" content="American McGee's Alice in a new open-source engine. Windows preview, guided setup and controller support. Requires separate compatible game files.">
+  <meta property="og:url" content="https://skulitom.github.io/LookingGlass/">
+  <meta property="og:image" content="https://raw.githubusercontent.com/skulitom/LookingGlass/main/docs/media/gameplay/dry-landing.gif">
+  <meta property="og:image:alt" content="Alice exploring Dry Landing in the Looking Glass Windows preview">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://skulitom.github.io/LookingGlass/">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="page">
+    <header class="site-header">
+      <a class="wordmark" href="#" aria-label="Looking Glass home"><span class="looking-glass-mark" aria-hidden="true">L<span>G</span></span>Looking Glass</a>
+      <nav aria-label="Main navigation">
+        <a href="#setup">How to install</a>
+        <a href="#questions">Questions</a>
+        <a href="https://github.com/skulitom/LookingGlass">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="game-name">American McGee’s Alice, revisited.</p>
+          <h1 id="hero-title">Through the<br>Looking Glass.</h1>
+          <p class="intro">Return to Wonderland in a new, open-source engine. The original world, with guided setup, flexible controls and room to keep improving.</p>
+          <a class="download" href="https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Windows-x64-v0.32.0-preview.1.zip">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg>
+            Download for Windows
+          </a>
+          <p class="download-note">Windows x64 · 10.4 MB ZIP<br>v0.32.0-preview.1 · Experimental preview</p>
+          <p class="requirement">Requires separate, compatible English 2011 game files. First-launch setup helps you find and import them.</p>
+        </div>
+        <figure class="hero-footage">
+          <div class="mirror-frame">
+            <video controls playsinline preload="metadata" width="1280" height="720" aria-label="Dry Landing gameplay, an eleven-second silent preview">
+              <source src="media/dry-landing.mp4#t=0.1" type="video/mp4">
+              <a href="media/dry-landing.mp4">Watch the Dry Landing gameplay clip</a>.
+            </video>
+          </div>
+          <figcaption><span>Dry Landing, in the Windows preview.</span><span>Actual gameplay · Silent recording</span></figcaption>
+          <a class="showcase-link" href="https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Preview-Showcase.mp4">Watch the full 54-second showcase <span aria-hidden="true">↗</span></a>
+        </figure>
+      </section>
+
+      <section class="benefits" aria-label="What Looking Glass offers">
+        <article>
+          <h2>A familiar journey</h2>
+          <p>All 39 campaign visits, from the opening to the ending and credits. Explore, fight, solve puzzles and carry your progress between levels.</p>
+        </article>
+        <article>
+          <h2>Make yourself at home</h2>
+          <p>Keyboard and mouse or an Xbox/XInput controller. Rebind controls, adjust the camera, and choose your resolution or borderless fullscreen.</p>
+        </article>
+        <article>
+          <h2>Built to keep growing</h2>
+          <p>An independently written Rust engine with open-source code. Help refine the performances, effects and small details that make this world memorable.</p>
+        </article>
+      </section>
+
+      <section class="installation" id="setup" aria-labelledby="setup-title">
+        <div class="section-heading">
+          <h2 id="setup-title">Your way into Wonderland.</h2>
+          <p>No compiler, commands or separate extraction tools.<br>Allow 3 GB of free space for the game and setup.</p>
+        </div>
+        <ol class="setup-steps">
+          <li><h3>Download &amp; extract</h3><p>Save the Windows ZIP using the button above. Right-click it, choose <strong>Extract All</strong>, and open the extracted LookingGlass folder.</p></li>
+          <li><h3>Open Launch.cmd</h3><p>Double-click <strong>Launch.cmd</strong>. The setup window opens on your first launch. Keep the entire extracted folder together.</p></li>
+          <li><h3>Set up &amp; play</h3><p>Choose your compatible game folder or archive, or the optional download. Select <strong>Set up</strong>, then choose <strong>New Game</strong> when the game opens.</p></li>
+        </ol>
+        <a class="text-link" href="https://github.com/skulitom/LookingGlass/blob/main/docs/INSTALL.md">Full installation guide and troubleshooting</a>
+      </section>
+
+      <section class="worlds" aria-labelledby="worlds-title">
+        <div class="section-heading compact">
+          <h2 id="worlds-title">A little further down the path.</h2>
+          <p>More footage from the same preview. Press play to explore.</p>
+        </div>
+        <div class="world-grid">
+          <figure>
+            <video controls playsinline preload="metadata" width="1280" height="720" aria-label="Pool of Tears waterfall exploration, a ten-second silent preview">
+              <source src="media/pool-of-tears.mp4#t=0.1" type="video/mp4">
+              <a href="media/pool-of-tears.mp4">Watch the Pool of Tears gameplay clip</a>.
+            </video>
+            <figcaption><strong>Pool of Tears</strong><span>Waterfall exploration · Silent</span></figcaption>
+          </figure>
+          <figure>
+            <video controls playsinline preload="metadata" width="1280" height="720" aria-label="Pale Realm chess town exploration, a fourteen-second silent preview">
+              <source src="media/pale-realm.mp4#t=0.1" type="video/mp4">
+              <a href="media/pale-realm.mp4">Watch the Pale Realm gameplay clip</a>.
+            </video>
+            <figcaption><strong>Pale Realm</strong><span>The chess town · Silent</span></figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="questions" id="questions" aria-labelledby="questions-title">
+        <div>
+          <h2 id="questions-title">Before you step through.</h2>
+          <p class="section-intro">A few practical answers about the preview.</p>
+          <a class="text-link" href="https://github.com/skulitom/LookingGlass/issues/new/choose">Report a problem</a>
+        </div>
+        <div class="answers">
+          <details open>
+            <summary>Is the whole game playable?</summary>
+            <p>The full 39-visit campaign has completed automated native playthroughs, including one uninterrupted fresh run. This is still an experimental preview: cutscene staging, effects, materials and enemy behavior have known differences. Wider device and audible playthrough testing is unfinished.</p>
+            <p>Read the <a href="https://github.com/skulitom/LookingGlass/blob/main/docs/KNOWN_ISSUES.md">known issues</a> and <a href="https://github.com/skulitom/LookingGlass/blob/main/docs/CAMPAIGN_RUN_AUDIT.md">campaign testing notes</a> for the exact coverage.</p>
+          </details>
+          <details>
+            <summary>Which game files do I need?</summary>
+            <p>The supported data is the English 2011 vanilla release of American McGee’s Alice. The engine download contains no original game data. Use files you are entitled to use.</p>
+            <p>Setup can select your existing folder or archive, or optionally download <strong>Alice1_2011_vanilla.7z</strong> from Internet Archive (about 933 MB). Compatibility with the 2000 retail release, other languages and texture modifications is not established. See <a href="https://github.com/skulitom/LookingGlass/blob/main/docs/INSTALL.md#where-to-get-the-game-files">where to get the files</a>.</p>
+          </details>
+          <details>
+            <summary>Is this an official remaster?</summary>
+            <p>No. Looking Glass is an independent, unofficial recreation with a newly written engine. It uses the artwork, models, music and voices in your game files. It is not affiliated with or endorsed by Electronic Arts or the original creators.</p>
+          </details>
+          <details>
+            <summary>Will my old saves work?</summary>
+            <p>Looking Glass has its own save format. Saves from the original game cannot be imported. The preview includes manual slots, quick save and autosave. Use normal level exits to continue your campaign; selecting a chapter starts a fresh visit.</p>
+          </details>
+          <details>
+            <summary>Can I play on Linux, Mac or Steam Deck?</summary>
+            <p>The current tested package is for Windows x64. Other platforms are not certified. Contributions and careful compatibility reports are welcome.</p>
+          </details>
+          <details>
+            <summary>Windows says the publisher is unknown. What now?</summary>
+            <p>This preview is unsigned. Confirm that you downloaded it from the linked GitHub release, and check its source and checksum. Do not disable antivirus or system security. The <a href="https://github.com/skulitom/LookingGlass/blob/main/docs/INSTALL.md#troubleshooting">troubleshooting guide</a> covers launch and setup problems.</p>
+          </details>
+        </div>
+      </section>
+
+      <section class="contribute" aria-labelledby="contribute-title">
+        <div><h2 id="contribute-title">Help bring the details back.</h2><p>Know the original by heart? Enjoy Rust, game engines or testing? Reproducible bug reports and focused improvements help Looking Glass grow.</p></div>
+        <a class="secondary-button" href="https://github.com/skulitom/LookingGlass/blob/main/CONTRIBUTING.md">Start contributing</a>
+      </section>
+    </main>
+
+    <footer>
+      <p class="footer-name">Looking Glass</p>
+      <div class="footer-links"><a href="https://github.com/skulitom/LookingGlass/releases/tag/v0.32.0-preview.1">Release notes &amp; checksums</a><a href="https://steamcommunity.com/sharedfiles/filedetails/?id=3811492781">Steam setup guide</a><a href="https://github.com/skulitom/LookingGlass">Source code</a></div>
+      <p class="legal">Newly authored engine code is MIT-licensed. Original game content and gameplay footage are excluded. American McGee’s Alice and related content belong to their respective rights holders. <a href="https://github.com/skulitom/LookingGlass/blob/main/LEGAL.md">License details</a>.</p>
+    </footer>
+  </div>
+</body>
+</html>

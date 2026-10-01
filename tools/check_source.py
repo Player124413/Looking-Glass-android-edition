@@ -14,6 +14,11 @@ ROOT_FILES = {
     "THIRD_PARTY_NOTICES.txt", "build.rs",
 }
 SUFFIXES = {"src": {".rs", ".json"}, "docs": {".md"}, "tools": {".py", ".ps1", ".java", ".cmd", ".md"}}
+# Authored public website files only; media retains its exact hash boundary.
+SITE_FILES = {
+    "docs/site/index.html", "docs/site/styles.css", "docs/site/favicon.svg",
+    "docs/site/sitemap.xml",
+}
 # User-requested README footage. Exact files/content only, never a general
 # allowance for original game assets or raw research captures.
 GAMEPLAY_MEDIA = {
@@ -34,7 +39,7 @@ def allowed(path):
     p = PurePosixPath(path)
     if p.is_absolute() or ".." in p.parts or "\\" in path:
         return False
-    if path in GAMEPLAY_MEDIA:
+    if path in GAMEPLAY_MEDIA or path in SITE_FILES:
         return True
     if len(p.parts) == 1:
         return path in ROOT_FILES or (path.startswith("Launch") and p.suffix == ".cmd")
