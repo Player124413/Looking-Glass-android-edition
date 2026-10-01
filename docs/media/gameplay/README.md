@@ -40,7 +40,7 @@ The video is silent, 1280 × 720, 30 fps, H.264. It demonstrates display options
 not rendering performance at 4K. Original artwork and this publicity video are
 excluded from MIT.
 
-This separately curated release asset is 11,619,165 bytes, with SHA-256
-`f6ce6c27e839fec11144a0f7f9dac569fa8d5db282d4eaaf80a4efd955d9c39d`.
+This separately curated release asset is 11,687,196 bytes, with SHA-256
+`787f42ade524e2d5827b45b534c30cb6cfac24331006f34e0d39df2db9815afa`.
 It is distributed as a release attachment; it does not change the six-file
 source-tree media allowlist or include game data archives.
