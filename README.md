@@ -1,16 +1,31 @@
-# Looking Glass
+# Looking Glass — American McGee's Alice Re-Remaster
 
-Play **American McGee's Alice** in a new Windows engine with guided setup,
-configurable controller support and modern display options. Looking Glass is an
-experimental, independently written Rust recreation using your own compatible
-**2011 game data**. It reads the original PK3 archives without running the
-original game executable or gameplay DLL.
+**Play the whole game, from the opening to the final boss, ending and credits.**
+All **39 campaign visits**, including return visits, are playable in this
+experimental Windows preview.
 
-**[Download the Windows preview](https://github.com/skulitom/LookingGlass/releases/tag/v0.32.0-preview.1)** ·
+Looking Glass is an unofficial **re-remaster of American McGee's Alice**: it
+brings the **2011 rerelease's game data** into a newly written, open-source Rust
+engine with guided setup, configurable controller support and modern display
+options. It uses your own compatible game files and runs independently of the
+original game executable, gameplay DLL and Alice: Madness Returns.
+
+**[Download and play the full campaign — Windows x64](https://github.com/skulitom/LookingGlass/releases/tag/v0.32.0-preview.1)** ·
+[Watch the 54-second showcase](#gameplay-showcase) ·
 [Report a bug](https://github.com/skulitom/LookingGlass/issues/new/choose)
 
 This is an experimental prerelease, with remaining fidelity and device-testing gaps.
 The project includes no original game data. You need your own compatible copy.
+
+## Gameplay showcase
+
+[![Watch the assembled Looking Glass showcase: American McGee's Alice gameplay, controller and display options, and guided setup](docs/media/gameplay/dry-landing.gif)](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Preview-Showcase.mp4)
+
+**[Watch or download the assembled 54-second video](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Preview-Showcase.mp4)**
+
+Combat and exploration, controller and display menus, and the three-step setup
+in one showcase. Actual Windows preview footage at normal speed, with captions;
+720p, 30 fps. **This recording is silent.**
 
 ## Why try Looking Glass?
 
@@ -20,6 +35,7 @@ project:
 
 | Feature | What it means for you |
 | --- | --- |
+| **Full playable campaign** | Start a new game and play all 39 story visits through the final boss, ending and credits, with campaign progress and saves carried between levels. |
 | **Guided installation** | One setup window finds, optionally downloads, checks and unpacks compatible game files, then starts the game. No compiler, separate extractor or changes to the original executable are needed. |
 | **Built-in controller support** | Play and navigate menus with an Xbox/XInput controller. Rebind buttons, adjust stick sensitivity and deadzones, and invert the camera. An active controller disconnect pauses play. |
 | **Modern display and camera options** | Choose window resolutions including 1080p, 1440p and 4K, or borderless fullscreen at your desktop resolution. Adjust third-person camera distance, mouse sensitivity and look inversion in the settings. |
@@ -46,6 +62,8 @@ recreations of the original game's features, alongside the conveniences above.
 
 ## Current status
 
+**The full campaign is playable; this re-remaster is still an experimental preview.**
+
 All 39 campaign visits have been completed in automated native playthroughs:
 three Easy and two Normal runs, including one uninterrupted fresh campaign.
 The other four used earned checkpoints while fixes were developed. The ending
@@ -64,10 +82,6 @@ playthrough validation remain unfinished. Looking Glass uses its own save
 format; saves from the original game cannot be imported.
 
 ## Gameplay
-
-**[Watch or download the 54-second showcase](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Preview-Showcase.mp4)**
-for combat, exploration, controller/display options and the three-step setup.
-Actual preview footage with captions; this recording is **silent**.
 
 Short clips recorded in the Windows preview, at normal speed. These recordings
 are **silent**. Select a preview to watch or download the full video.
@@ -89,6 +103,9 @@ Full videos are 720p. [Recording details](docs/media/gameplay/README.md).
    game files or offers to download the compatible files from Internet Archive.
 4. Select **Set up**. Setup checks and unpacks the files, then opens the game.
    Next time, just open **Launch.cmd** or your optional desktop shortcut.
+
+Choose **New Game** to play the full campaign in story order, or use the chapter
+chooser to jump into a particular visit.
 
 No commands, Rust, separate 7-Zip installation or administrator access are needed
 for the Windows package. Allow **3 GB of free space**; the optional game-data
