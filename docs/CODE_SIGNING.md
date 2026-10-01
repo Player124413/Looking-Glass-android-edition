@@ -2,8 +2,9 @@
 
 ## Current status
 
-Looking Glass is preparing an application for free code signing from
-[SignPath Foundation](https://signpath.org/). **The current Windows preview is
+Looking Glass applied for free code signing from
+[SignPath Foundation](https://signpath.org/) on 1 October 2026 and is awaiting
+review. **The current Windows preview is
 unsigned.** No SignPath approval, certificate or signed release is claimed.
 Its checksums verify file integrity; they do not establish a verified publisher.
 
