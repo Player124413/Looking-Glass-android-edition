@@ -14,6 +14,8 @@ The six curated README media files listed in `tools/check_source.py` are the
 explicit exception for gameplay publicity. Their content hashes are checked;
 this does not allow arbitrary captures or original asset files. See
 [recording details](docs/media/gameplay/README.md). Footage is excluded from MIT.
+The separately curated preview-showcase release attachment is documented there
+with its exact hash; it does not expand the source-tree media allowlist.
 
 The code reads data supplied locally by the player. A contribution must not
 require an original executable or silently download game data.

@@ -65,6 +65,10 @@ format; saves from the original game cannot be imported.
 
 ## Gameplay
 
+**[Watch or download the 54-second showcase](https://github.com/skulitom/LookingGlass/releases/download/v0.32.0-preview.1/LookingGlass-Preview-Showcase.mp4)**
+for combat, exploration, controller/display options and the three-step setup.
+Actual preview footage with captions; this recording is **silent**.
+
 Short clips recorded in the Windows preview, at normal speed. These recordings
 are **silent**. Select a preview to watch or download the full video.
 
