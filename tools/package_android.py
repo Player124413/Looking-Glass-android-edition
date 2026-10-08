@@ -187,6 +187,29 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
+def emit_ci_error(title: str, details: str) -> None:
+    lines = [line.strip() for line in details.splitlines() if line.strip()]
+    tail = " | ".join(lines[-25:]) if lines else details.strip()
+    tail = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::error title={title}::{tail}", flush=True)
+
+
+def run_cmd(cmd: list[str], cwd: pathlib.Path | None = None, env: dict[str, str] | None = None) -> None:
+    proc = subprocess.run(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    if proc.stdout:
+        print(proc.stdout, end="", flush=True)
+    if proc.returncode != 0:
+        emit_ci_error(f"Command failed ({pathlib.Path(cmd[0]).name})", proc.stdout or f"exit {proc.returncode}")
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
+
+
 def find_ndk_root() -> pathlib.Path | None:
     for var in ("ANDROID_NDK_HOME", "ANDROID_NDK_ROOT", "ANDROID_NDK_LATEST_HOME", "NDK_HOME"):
         val = os.environ.get(var)
@@ -295,13 +318,17 @@ def build_native_libraries(
         if release:
             cmd.append("--release")
         cmd.extend(["--", "--crate-type=cdylib"])
-        subprocess.run(cmd, cwd=ROOT, env=env, check=True)
+        run_cmd(cmd, cwd=ROOT, env=env)
 
         so_path = ROOT / "target" / target / profile / "liblooking_glass.so"
         if not so_path.exists():
             alt = ROOT / "target" / target / profile / "liblooking-glass.so"
             so_path = alt if alt.exists() else so_path
         if not so_path.exists():
+            found = list((ROOT / "target" / target / profile).glob("*.so")) + list(
+                (ROOT / "target" / target / profile / "deps").glob("*.so")
+            )
+            emit_ci_error("Missing .so", f"Expected {so_path}, found: {[str(p) for p in found]}")
             raise SystemExit(f"Expected shared library not found for {target}: {so_path}")
         built[abi] = so_path
         extra[abi] = []
@@ -319,14 +346,17 @@ def try_build_signed_apk(
 ) -> pathlib.Path | None:
     sdk_root = find_sdk_root()
     if sdk_root is None:
+        emit_ci_error("Android SDK", "ANDROID_HOME / ANDROID_SDK_ROOT not found")
         return None
     build_tools_root = sdk_root / "build-tools"
     platforms_root = sdk_root / "platforms"
     if not build_tools_root.is_dir() or not platforms_root.is_dir():
+        emit_ci_error("Android SDK", f"Missing build-tools or platforms in {sdk_root}")
         return None
     bt_versions = sorted(p for p in build_tools_root.iterdir() if p.is_dir())
     pf_versions = sorted(p for p in platforms_root.iterdir() if (p / "android.jar").is_file())
     if not bt_versions or not pf_versions:
+        emit_ci_error("Android SDK", "No build-tools or android.jar found")
         return None
 
     bt_dir = bt_versions[-1]
@@ -340,6 +370,10 @@ def try_build_signed_apk(
     javac = shutil.which("javac")
     keytool = shutil.which("keytool")
     if not (aapt2.exists() and d8.exists() and zipalign.exists() and apksigner.exists() and javac and keytool):
+        emit_ci_error(
+            "SDK Tools",
+            f"aapt2={aapt2.exists()} d8={d8.exists()} zipalign={zipalign.exists()} apksigner={apksigner.exists()} javac={bool(javac)} keytool={bool(keytool)}",
+        )
         return None
 
     meta = load_android_metadata()
@@ -351,11 +385,8 @@ def try_build_signed_apk(
 
     res_zip = work / "res.zip"
     unaligned_apk = work / "unaligned.apk"
-    subprocess.run(
-        [str(aapt2), "compile", "-o", str(res_zip), "--dir", str(layout_dir / "res")],
-        check=True,
-    )
-    subprocess.run(
+    run_cmd([str(aapt2), "compile", "-o", str(res_zip), "--dir", str(layout_dir / "res")])
+    run_cmd(
         [
             str(aapt2),
             "link",
@@ -369,14 +400,13 @@ def try_build_signed_apk(
             str(res_zip),
             "--java",
             str(work / "gen"),
-        ],
-        check=True,
+        ]
     )
 
     java_sources = [
         str(p) for p in (layout_dir / "src" / "main" / "java").rglob("*.java")
     ] + [str(p) for p in (work / "gen").rglob("*.java")]
-    subprocess.run(
+    run_cmd(
         [
             javac,
             "--release",
@@ -386,12 +416,11 @@ def try_build_signed_apk(
             "-d",
             str(work / "obj"),
             *java_sources,
-        ],
-        check=True,
+        ]
     )
 
     class_files = [str(p) for p in (work / "obj").rglob("*.class")]
-    subprocess.run(
+    run_cmd(
         [
             str(d8),
             "--lib",
@@ -401,8 +430,7 @@ def try_build_signed_apk(
             "--output",
             str(work),
             *class_files,
-        ],
-        check=True,
+        ]
     )
 
     with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -414,13 +442,10 @@ def try_build_signed_apk(
 
     dist_dir.mkdir(parents=True, exist_ok=True)
     final_apk = dist_dir / f"LookingGlass-v{meta['version']}-android.apk"
-    subprocess.run(
-        [str(zipalign), "-f", "-p", "4", str(unaligned_apk), str(final_apk)],
-        check=True,
-    )
+    run_cmd([str(zipalign), "-f", "-p", "4", str(unaligned_apk), str(final_apk)])
 
     keystore = work / "debug.keystore"
-    subprocess.run(
+    run_cmd(
         [
             keytool,
             "-genkeypair",
@@ -440,10 +465,9 @@ def try_build_signed_apk(
             "2048",
             "-validity",
             "10000",
-        ],
-        check=True,
+        ]
     )
-    subprocess.run(
+    run_cmd(
         [
             str(apksigner),
             "sign",
@@ -452,8 +476,7 @@ def try_build_signed_apk(
             "--ks-pass",
             "pass:android",
             str(final_apk),
-        ],
-        check=True,
+        ]
     )
     return final_apk
 
@@ -537,7 +560,7 @@ def main() -> int:
             print(f"  {key}: {path}")
         return 0
 
-    subprocess.run([sys.executable, "tools/check_source.py"], cwd=ROOT, check=True)
+    run_cmd([sys.executable, "tools/check_source.py", "--worktree"], cwd=ROOT)
     targets = args.target or ["aarch64-linux-android"]
     layout_dir = ROOT / "target" / "android-layout"
     generate_layout(layout_dir)
