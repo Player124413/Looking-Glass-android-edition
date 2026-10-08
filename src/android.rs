@@ -727,7 +727,6 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 browsing = true;
                 browse_scroll = 0;
             } else if pointer.is_some_and(|p| auto_btn.contains(p)) {
-                status = "Scanning Download / Documents folders for PK3 files...".into();
                 match auto_import_from_storage(&root) {
                     Ok(count) => {
                         status = format!("Copied {count} PK3 archive(s) into base/. Starting...");
@@ -873,10 +872,6 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 let dest_base = root.join("base");
                 match import_game_dir(&browse_dir, &dest_base) {
                     Ok(count) => {
-                        status = format!(
-                            "Copied {count} PK3 archive(s) into {}. Launching...",
-                            dest_base.display()
-                        );
                         let resolved = resolve_data_dir(&initial);
                         match Assets::open(&resolved) {
                             Ok(assets) => {

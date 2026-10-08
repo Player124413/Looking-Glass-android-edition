@@ -287,6 +287,41 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
     existing_flags = env.get(rustflags_key, "")
     link_flag = f"-Clink-arg=-L{libgcc_dir}"
     env[rustflags_key] = f"{existing_flags} {link_flag}".strip()
+
+    wrapper_py = libgcc_dir / "rustc_cdylib_wrapper.py"
+    wrapper_py.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, shutil, subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "is_android_bin = (\n"
+        "    'looking_glass' in args\n"
+        "    and any('android' in a for a in args)\n"
+        "    and '--print' not in ' '.join(args)\n"
+        ")\n"
+        "if is_android_bin:\n"
+        "    for i in range(len(args) - 1):\n"
+        "        if args[i] == '--crate-type' and args[i + 1] == 'bin':\n"
+        "            args[i + 1] = 'cdylib'\n"
+        "res = subprocess.run(args)\n"
+        "if is_android_bin and res.returncode == 0 and '--out-dir' in args:\n"
+        "    out_dir = pathlib.Path(args[args.index('--out-dir') + 1])\n"
+        "    for so in out_dir.glob('liblooking_glass*.so'):\n"
+        "        stem = so.name[3:-3]\n"
+        "        shutil.copy2(so, out_dir / stem)\n"
+        "        shutil.copy2(so, out_dir.parent / 'liblooking_glass.so')\n"
+        "raise SystemExit(res.returncode)\n",
+        encoding="utf-8",
+    )
+    wrapper_py.chmod(0o755)
+    if os.name == "nt":
+        wrapper_cmd = libgcc_dir / "rustc_cdylib_wrapper.cmd"
+        wrapper_cmd.write_text(
+            f'@"{sys.executable}" "{wrapper_py}" %*\r\n',
+            encoding="utf-8",
+        )
+        env["RUSTC_WRAPPER"] = str(wrapper_cmd)
+    else:
+        env["RUSTC_WRAPPER"] = str(wrapper_py)
     return env
 
 
@@ -312,22 +347,26 @@ def build_native_libraries(
         env = configure_ndk_env(ndk_root, target, min_sdk)
         cmd = ["cargo"]
         if has_cargo_ndk:
-            cmd.extend(["ndk", "-t", abi, "--platform", str(min_sdk), "rustc", "--locked"])
+            cmd.extend(["ndk", "-t", abi, "--platform", str(min_sdk), "build", "--locked"])
         else:
-            cmd.extend(["rustc", "--locked", "--target", target])
+            cmd.extend(["build", "--locked", "--target", target])
         if release:
             cmd.append("--release")
-        cmd.extend(["--", "--crate-type=cdylib"])
         run_cmd(cmd, cwd=ROOT, env=env)
 
-        so_path = ROOT / "target" / target / profile / "liblooking_glass.so"
+        target_dir = ROOT / "target" / target / profile
+        so_path = target_dir / "liblooking_glass.so"
         if not so_path.exists():
-            alt = ROOT / "target" / target / profile / "liblooking-glass.so"
-            so_path = alt if alt.exists() else so_path
-        if not so_path.exists():
-            found = list((ROOT / "target" / target / profile).glob("*.so")) + list(
-                (ROOT / "target" / target / profile / "deps").glob("*.so")
+            candidates = sorted(
+                list(target_dir.glob("liblooking*glass*.so"))
+                + list((target_dir / "deps").glob("liblooking*glass*.so")),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
             )
+            if candidates:
+                shutil.copy2(candidates[0], so_path)
+        if not so_path.exists():
+            found = list(target_dir.glob("*.so")) + list((target_dir / "deps").glob("*.so"))
             emit_ci_error("Missing .so", f"Expected {so_path}, found: {[str(p) for p in found]}")
             raise SystemExit(f"Expected shared library not found for {target}: {so_path}")
         built[abi] = so_path
