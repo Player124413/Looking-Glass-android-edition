@@ -326,7 +326,22 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
             "            patch_arg(line.strip().strip('\"'))\n"
             "    else:\n"
             "        patch_arg(arg)\n"
-            "res = subprocess.run([REAL_CLANG, *args])\n"
+            "tail_flags = [\n"
+            "    '-Wl,-Bstatic',\n"
+            "    '-lc++_static',\n"
+            "    '-lc++abi',\n"
+            "    '-Wl,-Bdynamic',\n"
+            "    '-landroid',\n"
+            "    '-llog',\n"
+            "    '-lEGL',\n"
+            "    '-lGLESv2',\n"
+            "    '-lOpenSLES',\n"
+            "    '-ldl',\n"
+            "    '-lm',\n"
+            "    '-lc',\n"
+            "    '-Wl,--no-undefined',\n"
+            "]\n"
+            "res = subprocess.run([REAL_CLANG, *args, *tail_flags])\n"
             "raise SystemExit(res.returncode)\n",
             encoding="utf-8",
         )
@@ -640,8 +655,31 @@ def verify_jni_exports(ndk_root: pathlib.Path | None, so_path: pathlib.Path) -> 
         raise SystemExit(
             f"Shared library {so_path} was linked without patched miniquad (missing ANativeWindow_setBuffersGeometry)"
         )
+    proc_undef = subprocess.run(
+        [nm_bin, "-D", "--undefined-only", str(so_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=True,
+    )
+    undef_syms = set()
+    for line in proc_undef.stdout.splitlines():
+        parts = line.split()
+        if parts:
+            undef_syms.add(parts[-1])
+    bad_cpp_undef = sorted(
+        s for s in undef_syms if s.startswith("__cxa_") or s.startswith("_Z") or s.startswith("__gxx_")
+    )
+    if bad_cpp_undef:
+        emit_ci_error(
+            "Undefined C++ ABI symbols in .so",
+            f"Unresolved C++ symbols in {so_path.name}: {bad_cpp_undef[:20]}",
+        )
+        raise SystemExit(
+            f"Shared library {so_path} has unresolved C++ symbols: {bad_cpp_undef}"
+        )
     print(
-        f"::notice title=JNI & EGL Verified::Verified all {len(REQUIRED_JNI_SYMBOLS)} JNI exports and ANativeWindow_setBuffersGeometry in {so_path.name}",
+        f"::notice title=JNI & C++ ABI Verified::Verified all {len(REQUIRED_JNI_SYMBOLS)} JNI exports, ANativeWindow_setBuffersGeometry, and 0 unresolved C++ symbols in {so_path.name} (total imports: {len(undef_syms)})",
         flush=True,
     )
 

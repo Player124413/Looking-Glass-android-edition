@@ -19,6 +19,8 @@ fn main() {
         for lib in ["android", "log", "EGL", "GLESv2", "OpenSLES"] {
             println!("cargo:rustc-link-lib={lib}");
         }
+        println!("cargo:rustc-link-lib=static=c++_static");
+        println!("cargo:rustc-link-lib=static=c++abi");
         // When compiling the binary as a cdylib for Android's System.loadLibrary,
         // ensure miniquad's JNI entry points in libminiquad.rlib are retained and exported.
         for sym in [
