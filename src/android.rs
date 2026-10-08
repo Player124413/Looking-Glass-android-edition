@@ -185,6 +185,14 @@ impl PerformancePreset {
         self.detail_error_threshold()
     }
 
+    pub fn lod_distance_scale(self) -> f32 {
+        match self.effective() {
+            Self::Quality | Self::Auto => 1.0,
+            Self::Balanced => 0.8,
+            Self::Performance => 0.6,
+        }
+    }
+
     /// Maximum dynamic point lights evaluated per draw pass after visibility culling.
     pub fn max_dynamic_lights(self) -> usize {
         match self.effective() {
