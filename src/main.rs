@@ -192,15 +192,12 @@ fn run() -> Result<()> {
     if android::is_android() {
         macroquad::Window::from_config(viewer::config(), async move {
             android::install_panic_hook();
-            let assets = match Assets::open(&o.data) {
+            let assets = match android::wait_for_data(o.data.clone()).await {
                 Ok(assets) => assets,
-                Err(_) => match android::wait_for_data(o.data.clone()).await {
-                    Ok(assets) => assets,
-                    Err(e) => {
-                        eprintln!("Setup aborted: {e:#}");
-                        return;
-                    }
-                },
+                Err(e) => {
+                    eprintln!("Setup aborted: {e:#}");
+                    return;
+                }
             };
             if let Err(e) = viewer::run(assets, o).await {
                 eprintln!("Viewer failed: {e:#}");

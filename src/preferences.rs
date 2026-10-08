@@ -108,6 +108,7 @@ pub struct Preferences {
     pub touch_opacity: f32,
     pub touch_left_handed: bool,
     pub performance_preset: crate::android::PerformancePreset,
+    pub fps_limit: crate::android::FpsLimit,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -131,6 +132,7 @@ impl Default for Preferences {
             touch_opacity: 0.78,
             touch_left_handed: false,
             performance_preset: crate::android::PerformancePreset::Auto,
+            fps_limit: crate::android::FpsLimit::Fps60,
         }
     }
 }
@@ -224,6 +226,7 @@ impl Preferences {
     }
     pub fn display(&self) {
         crate::android::set_active_preset(self.performance_preset);
+        crate::android::set_active_fps_limit(self.fps_limit);
         #[cfg(not(target_os = "android"))]
         {
             set_fullscreen(self.fullscreen);

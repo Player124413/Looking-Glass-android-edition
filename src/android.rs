@@ -118,6 +118,69 @@ fn report_native_crash_to_java(message: &str) {
     }
 }
 
+/// Target frame rate cap selectable in the Android Launcher and Video Settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FpsLimit {
+    #[serde(alias = "30", alias = "30fps")]
+    Fps30,
+    #[default]
+    #[serde(alias = "60", alias = "60fps")]
+    Fps60,
+    #[serde(alias = "uncapped", alias = "max")]
+    Unlimited,
+}
+
+static ACTIVE_FPS_LIMIT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+
+pub fn set_active_fps_limit(limit: FpsLimit) {
+    let code = match limit {
+        FpsLimit::Fps30 => 0,
+        FpsLimit::Fps60 => 1,
+        FpsLimit::Unlimited => 2,
+    };
+    ACTIVE_FPS_LIMIT.store(code, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn active_fps_limit() -> FpsLimit {
+    match ACTIVE_FPS_LIMIT.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => FpsLimit::Fps30,
+        2 => FpsLimit::Unlimited,
+        _ => FpsLimit::Fps60,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn looking_glass_target_frame_us() -> u64 {
+    active_fps_limit().target_frame_us()
+}
+
+impl FpsLimit {
+    pub const ALL: [Self; 3] = [Self::Fps30, Self::Fps60, Self::Unlimited];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Fps30 => "30 FPS",
+            Self::Fps60 => "60 FPS",
+            Self::Unlimited => "Unlimited",
+        }
+    }
+
+    pub fn next(self, delta: f32) -> Self {
+        let index = Self::ALL.iter().position(|&p| p == self).unwrap_or(1) as i32;
+        let step = if delta < 0. { -1 } else { 1 };
+        Self::ALL[(index + step).rem_euclid(Self::ALL.len() as i32) as usize]
+    }
+
+    pub fn target_frame_us(self) -> u64 {
+        match self {
+            Self::Fps30 => 33_333,
+            Self::Fps60 => 16_666,
+            Self::Unlimited => 0,
+        }
+    }
+}
+
 /// Runtime rendering and frame-budget preset for desktop and mobile GPUs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -711,10 +774,20 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
     let root = storage_root();
     prepare_directories(&root);
     clear_import_status(&root);
-    let mut status = format!(
-        "Select your game folder or PK3 archive to copy into {}",
-        root.join("base").display()
-    );
+    let mut prefs = crate::preferences::Preferences::load();
+    prefs.display();
+    let initial_ready = has_pk3_archives(&resolve_data_dir(&initial));
+    let mut status = if initial_ready {
+        format!(
+            "Game data ready in {}. Select FPS / Preset and tap START GAME.",
+            resolve_data_dir(&initial).display()
+        )
+    } else {
+        format!(
+            "Select your game folder or PK3 archive to copy into {}",
+            root.join("base").display()
+        )
+    };
     let mut browsing = false;
     let mut browse_dir = initial_browse_dir(&root);
     let mut browse_scroll = 0usize;
@@ -740,14 +813,15 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             }
         }
 
+        let data_ready = has_pk3_archives(&resolve_data_dir(&initial));
         let (w, h) = (screen_width(), screen_height());
         let s = (h / 720.).clamp(0.65, 2.2).min(w / 960.);
         clear_background(Color::from_hex(0x141118));
         let panel = Rect::new(
             (w - 880. * s).max(20.) * 0.5,
-            (h - 560. * s).max(20.) * 0.5,
+            (h - 580. * s).max(20.) * 0.5,
             (w - 40.).min(880. * s),
-            (h - 40.).min(560. * s),
+            (h - 40.).min(580. * s),
         );
         draw_rectangle(panel.x, panel.y, panel.w, panel.h, Color::from_hex(0x221b29));
         draw_rectangle_lines(
@@ -759,15 +833,15 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             Color::from_hex(0x8c6d46),
         );
         let x = panel.x + 26. * s;
-        let mut y = panel.y + 40. * s;
+        let mut y = panel.y + 38. * s;
         draw_text(
-            "Looking Glass - Game Data Launcher",
+            "Looking Glass - Android Launcher",
             x,
             y,
             (30. * s).round(),
             Color::from_hex(0xf3e5c8),
         );
-        y += 32. * s;
+        y += 30. * s;
 
         let pointer = touches()
             .iter()
@@ -779,25 +853,107 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
 
         if !browsing {
             for line in [
-                "Tap 'Choose Game Folder' or 'Select PK3 / ZIP' to select your Alice game folder,",
-                "and Looking Glass will automatically copy pak0.pk3..pak4_english.pk3 into:",
-                &format!("  {}", root.join("base").display()),
-                "Required archives: pak0.pk3, pak1_large.pk3, pak2_small.pk3, pak3.pk3, pak4_english.pk3",
+                "Tap 'Choose Game Folder' or 'Select PK3 / ZIP' to import your Alice game folder,",
+                &format!("or tap 'START GAME' once pak0..pak4_english.pk3 are in {}", root.join("base").display()),
             ] {
-                draw_text(line, x, y, (19. * s).round(), Color::from_hex(0xd8cbb8));
-                y += 26. * s;
+                draw_text(line, x, y, (18. * s).round(), Color::from_hex(0xd8cbb8));
+                y += 24. * s;
             }
-            y += 10. * s;
+            y += 6. * s;
             draw_text(
                 &status,
                 x,
                 y,
                 (19. * s).round(),
-                Color::from_hex(0xe59866),
+                Color::from_hex(if data_ready { 0x82e0aa } else { 0xe59866 }),
             );
 
-            let row1_y = panel.bottom() - 140. * s;
-            let row2_y = panel.bottom() - 74. * s;
+            // FPS Limit Selector Row (30 FPS / 60 FPS / Unlimited)
+            let fps_y = y + 26. * s;
+            draw_text(
+                "FPS Limit:",
+                x,
+                fps_y + 30. * s,
+                (21. * s).round(),
+                Color::from_hex(0xf3e5c8),
+            );
+            for (i, mode) in FpsLimit::ALL.into_iter().enumerate() {
+                let btn = Rect::new(x + 150. * s + i as f32 * 185. * s, fps_y, 170. * s, 44. * s);
+                let active = prefs.fps_limit == mode;
+                draw_rectangle(
+                    btn.x,
+                    btn.y,
+                    btn.w,
+                    btn.h,
+                    Color::from_hex(if active { 0x7d5a2b } else { 0x2f2638 }),
+                );
+                draw_rectangle_lines(
+                    btn.x,
+                    btn.y,
+                    btn.w,
+                    btn.h,
+                    if active { 3. * s } else { 1.5 * s },
+                    Color::from_hex(if active { 0xf5cba7 } else { 0x7c6750 }),
+                );
+                draw_text(
+                    mode.name(),
+                    btn.x + 22. * s,
+                    btn.y + 29. * s,
+                    (20. * s).round(),
+                    if active { Color::from_hex(0xfff2d6) } else { WHITE },
+                );
+                if pointer.is_some_and(|p| btn.contains(p)) {
+                    prefs.fps_limit = mode;
+                    set_active_fps_limit(mode);
+                    let _ = prefs.save();
+                    status = format!("FPS Limit set to {} (saved).", mode.name());
+                }
+            }
+
+            // Graphics Preset Selector Row (Auto / Quality / Balanced / Performance)
+            let preset_y = fps_y + 56. * s;
+            draw_text(
+                "Graphics:",
+                x,
+                preset_y + 30. * s,
+                (21. * s).round(),
+                Color::from_hex(0xf3e5c8),
+            );
+            for (i, preset) in PerformancePreset::ALL.into_iter().enumerate() {
+                let btn = Rect::new(x + 150. * s + i as f32 * 160. * s, preset_y, 148. * s, 44. * s);
+                let active = prefs.performance_preset == preset;
+                draw_rectangle(
+                    btn.x,
+                    btn.y,
+                    btn.w,
+                    btn.h,
+                    Color::from_hex(if active { 0x5c3d6e } else { 0x2f2638 }),
+                );
+                draw_rectangle_lines(
+                    btn.x,
+                    btn.y,
+                    btn.w,
+                    btn.h,
+                    if active { 3. * s } else { 1.5 * s },
+                    Color::from_hex(if active { 0xe8daef } else { 0x7c6750 }),
+                );
+                draw_text(
+                    preset.name(),
+                    btn.x + 16. * s,
+                    btn.y + 29. * s,
+                    (19. * s).round(),
+                    if active { Color::from_hex(0xfff2d6) } else { WHITE },
+                );
+                if pointer.is_some_and(|p| btn.contains(p)) {
+                    prefs.performance_preset = preset;
+                    set_active_preset(preset);
+                    let _ = prefs.save();
+                    status = format!("Graphics Preset set to {} (saved).", preset.name());
+                }
+            }
+
+            let row1_y = panel.bottom() - 134. * s;
+            let row2_y = panel.bottom() - 70. * s;
             let folder_btn = Rect::new(x, row1_y, 250. * s, 50. * s);
             let file_btn = Rect::new(x + 266. * s, row1_y, 240. * s, 50. * s);
             let browse_btn = Rect::new(x + 522. * s, row1_y, 260. * s, 50. * s);
@@ -811,7 +967,11 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 (file_btn, "Select PK3 / ZIP", Color::from_hex(0x4a354f)),
                 (browse_btn, "Browse Folders", Color::from_hex(0x354552)),
                 (auto_btn, "Auto-Import Downloads", Color::from_hex(0x3d4f35)),
-                (scan_btn, "Scan & Start", Color::from_hex(0x5b2c24)),
+                (
+                    scan_btn,
+                    if data_ready { "START GAME" } else { "Scan & Start" },
+                    Color::from_hex(if data_ready { 0x276e36 } else { 0x5b2c24 }),
+                ),
                 (quit_btn, "Quit", Color::from_hex(0x342a38)),
             ] {
                 draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
@@ -872,6 +1032,7 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 || is_key_pressed(KeyCode::Back)
                 || pointer.is_some_and(|p| quit_btn.contains(p));
             if trigger_quit {
+                request_quit();
                 anyhow::bail!("Closed from data setup screen");
             }
             if trigger_scan {

@@ -15,6 +15,7 @@ import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.system.Os;
 import android.util.Log;
+import android.view.Display;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -983,13 +984,40 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     private void applyFullscreenFlags() {
         try {
-            View decorView = getWindow().getDecorView();
-            if (decorView == null) {
+            Window window = getWindow();
+            if (window == null) {
                 return;
             }
+            LayoutParams lp = window.getAttributes();
             if (Build.VERSION.SDK_INT >= 28) {
-                getWindow().getAttributes().layoutInDisplayCutoutMode =
+                lp.layoutInDisplayCutoutMode =
                         LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            }
+            if (Build.VERSION.SDK_INT >= 23) {
+                Display display = getWindowManager().getDefaultDisplay();
+                if (display != null) {
+                    Display.Mode current = display.getMode();
+                    Display.Mode[] modes = display.getSupportedModes();
+                    Display.Mode best = current;
+                    if (modes != null && current != null) {
+                        for (Display.Mode m : modes) {
+                            if (m.getPhysicalWidth() == current.getPhysicalWidth()
+                                    && m.getPhysicalHeight() == current.getPhysicalHeight()
+                                    && m.getRefreshRate() > best.getRefreshRate()) {
+                                best = m;
+                            }
+                        }
+                    }
+                    if (best != null) {
+                        lp.preferredDisplayModeId = best.getModeId();
+                        lp.preferredRefreshRate = best.getRefreshRate();
+                    }
+                }
+            }
+            window.setAttributes(lp);
+            View decorView = window.getDecorView();
+            if (decorView == null) {
+                return;
             }
             int uiOptions =
                     View.SYSTEM_UI_FLAG_LAYOUT_STABLE

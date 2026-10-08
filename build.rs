@@ -26,6 +26,7 @@ fn main() {
         for sym in [
             "JNI_OnLoad",
             "jni_on_load",
+            "looking_glass_target_frame_us",
             "Java_quad_1native_QuadNative_activityOnCreate",
             "Java_quad_1native_QuadNative_activityOnResume",
             "Java_quad_1native_QuadNative_activityOnPause",

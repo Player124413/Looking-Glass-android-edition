@@ -654,6 +654,10 @@ impl Menu {
                             format!("Preset: {}", self.draft.performance_preset.name()),
                             252.,
                         ),
+                        (
+                            format!("FPS Limit: {}", self.draft.fps_limit.name()),
+                            304.,
+                        ),
                     ],
                     Page::Audio => vec![
                         ("Music Volume".into(), 168.),
@@ -720,6 +724,9 @@ impl Menu {
             (Page::Video, 1) => self.draft.fullscreen = !self.draft.fullscreen,
             (Page::Video, 2) => {
                 self.draft.performance_preset = self.draft.performance_preset.next(delta)
+            }
+            (Page::Video, 3) => {
+                self.draft.fps_limit = self.draft.fps_limit.next(delta)
             }
             (Page::Audio, 0) => {
                 self.draft_audio.music = (self.draft_audio.music + delta * 0.05).clamp(0., 1.)
@@ -1567,7 +1574,8 @@ impl Menu {
                             Click::Apply => {
                                 let display_changed = prefs.resolution != self.draft.resolution
                                     || prefs.fullscreen != self.draft.fullscreen
-                                    || prefs.performance_preset != self.draft.performance_preset;
+                                    || prefs.performance_preset != self.draft.performance_preset
+                                    || prefs.fps_limit != self.draft.fps_limit;
                                 match self.draft.save().and_then(|_| self.draft_audio.save()) {
                                     Ok(()) => {
                                         *prefs = self.draft.clone();
