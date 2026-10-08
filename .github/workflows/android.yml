@@ -2,7 +2,7 @@ name: Android Build
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "arena/**"]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
         run: cargo install cargo-ndk --version 3.5.4 --locked
 
       - name: Build signed Android APK & native bundle
-        run: python3 tools/package_android.py --target aarch64-linux-android
+        run: python3 tools/package_android.py --target aarch64-linux-android --require-apk
 
       - name: Upload Android APK & bundle artifact
         uses: actions/upload-artifact@v4

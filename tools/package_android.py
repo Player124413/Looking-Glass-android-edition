@@ -478,6 +478,11 @@ def main() -> int:
         default=ROOT / "target" / "android-dist",
         help="Output directory for the packaged Android APK and bundle.",
     )
+    parser.add_argument(
+        "--require-apk",
+        action="store_true",
+        help="Fail if Android SDK tools are unavailable or the signed .apk could not be built.",
+    )
     args = parser.parse_args()
 
     if args.layout_only is not None:
@@ -493,6 +498,8 @@ def main() -> int:
     generate_layout(layout_dir)
     libs, extra_libs = build_native_libraries(targets, release=not args.debug)
     apk_path = try_build_signed_apk(layout_dir, libs, extra_libs, args.dist_dir)
+    if args.require_apk and (apk_path is None or not apk_path.is_file()):
+        raise SystemExit("Failed to build signed Android APK (ensure ANDROID_HOME/ANDROID_SDK_ROOT and JDK are installed)")
     bundle = package_bundle(layout_dir, libs, args.dist_dir, extra_libs, apk_path)
     if apk_path is not None:
         print(f"Built signed Android APK: {apk_path}")
