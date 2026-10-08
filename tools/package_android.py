@@ -668,7 +668,11 @@ def verify_jni_exports(ndk_root: pathlib.Path | None, so_path: pathlib.Path) -> 
         if parts:
             undef_syms.add(parts[-1])
     bad_cpp_undef = sorted(
-        s for s in undef_syms if s.startswith("__cxa_") or s.startswith("_Z") or s.startswith("__gxx_")
+        s
+        for s in undef_syms
+        if (s.startswith("__cxa_") or s.startswith("_Z") or s.startswith("__gxx_"))
+        and not s.endswith("@LIBC")
+        and s not in ("__cxa_atexit", "__cxa_finalize")
     )
     if bad_cpp_undef:
         emit_ci_error(
