@@ -1,0 +1,53 @@
+name: Android Build
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build Android APK (ARM64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Audit source tree
+        run: python3 tools/check_source.py
+
+      - name: Run packaging & Android setup tests
+        run: python3 -m unittest discover -s tools -p "test_*.py" -v
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install Rust 1.86 with Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.86.0"
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 3.5.4 --locked
+
+      - name: Build signed Android APK & native bundle
+        run: python3 tools/package_android.py --target aarch64-linux-android
+
+      - name: Upload Android APK & bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LookingGlass-android-arm64
+          path: |
+            target/android-dist/LookingGlass-*-android.apk
+            target/android-dist/LookingGlass-*-android-bundle.zip
+            target/android-dist/SHA256SUMS.txt
+          if-no-files-found: error

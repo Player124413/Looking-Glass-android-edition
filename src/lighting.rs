@@ -19,14 +19,15 @@ thread_local! {
     static CROQUET: RefCell<Vec<Light>> = const {RefCell::new(Vec::new())};
 }
 pub fn select(mut lights: Vec<Light>, eye: Vec3, world: &World) {
+    let max_lights = crate::android::active_preset().max_dynamic_lights().min(8);
     lights.retain(|l| {
         l.position.is_finite() && l.color.is_finite() && l.radius > 0. && l.radius <= 8192.
     });
     lights.sort_by(|a, b| score(*b, eye).total_cmp(&score(*a, eye)));
-    lights.truncate(32);
+    lights.truncate(max_lights * 4);
     // A bounded visibility query rejects lights fully hidden from this room.
     lights.retain(|l| world.sweep(eye, l.position, Vec3::ZERO).fraction >= 0.995);
-    lights.truncate(8);
+    lights.truncate(max_lights);
     LIGHTS.with(|v| *v.borrow_mut() = lights);
 }
 fn score(light: Light, eye: Vec3) -> f32 {
@@ -130,24 +131,34 @@ pub fn shadow(world: &World, feet: Vec3, radius: f32) {
     let strength = (0.55 * (1. - feet.distance(center) / 160.)).clamp(0., 0.55);
     let tangent = hit.normal.cross(Vec3::X).normalize_or_zero();
     let bitangent = hit.normal.cross(tangent);
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
-    for (position, uv) in [(center, Vec2::splat(0.5))]
+    let fast = crate::android::active_preset().fast_contact_shadows();
+    let segments: u16 = if fast { 12 } else { 24 };
+    let mut vertices = Vec::with_capacity(segments as usize + 2);
+    let mut indices = Vec::with_capacity(segments as usize * 3);
+    for (idx, (position, uv)) in [(center, Vec2::splat(0.5))]
         .into_iter()
-        .chain((0..=24).map(|i| {
-            let a = i as f32 * std::f32::consts::TAU / 24.;
+        .chain((0..=segments).map(|i| {
+            let a = i as f32 * std::f32::consts::TAU / segments as f32;
             (
                 center + (tangent * a.cos() + bitangent * a.sin()) * radius,
                 vec2(a.cos(), a.sin()) * 0.5 + Vec2::splat(0.5),
             )
         }))
+        .enumerate()
     {
         // Clip each rim point against nearby support; shadows never bridge a pit.
-        let h = world.sweep(
-            position + hit.normal * 2.,
-            position - hit.normal * 5.,
-            Vec3::ZERO,
-        );
+        let supported = if fast && idx > 0 && idx % 3 != 1 {
+            true
+        } else {
+            world
+                .sweep(
+                    position + hit.normal * 2.,
+                    position - hit.normal * 5.,
+                    Vec3::ZERO,
+                )
+                .fraction
+                < 1.
+        };
         vertices.push(Vertex {
             position,
             uv,
@@ -156,7 +167,7 @@ pub fn shadow(world: &World, feet: Vec3, radius: f32) {
                 0,
                 0,
                 0,
-                if h.fraction < 1. {
+                if supported {
                     (strength * 255.) as u8
                 } else {
                     0
@@ -164,7 +175,7 @@ pub fn shadow(world: &World, feet: Vec3, radius: f32) {
             ],
         });
     }
-    for i in 1..=24 {
+    for i in 1..=segments {
         indices.extend([0, i, i + 1]);
     }
     crate::render_fx::effect(

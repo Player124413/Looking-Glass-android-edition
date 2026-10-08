@@ -854,6 +854,7 @@ impl Steam {
             p.position = next;
         }
         self.puffs.retain(|p| p.age < p.life);
+        let cull_dist_sq = crate::android::active_preset().particle_cull_distance_sq();
         for (index, e) in self.emitters.iter_mut().enumerate() {
             let dt = if e.spec.no_deadtime {
                 dt
@@ -863,7 +864,7 @@ impl Steam {
             if !e.enabled
                 || e.spec.rate <= 0.
                 || (e.spec.image.is_empty() && e.spec.light.is_some())
-                || e.origin.distance_squared(eye) > 3000. * 3000.
+                || e.origin.distance_squared(eye) > cull_dist_sq
             {
                 // Keep the enclosed light ready when its lantern comes into range.
                 e.carry = if e.enabled && e.spec.constrain.is_some() {

@@ -298,10 +298,12 @@ impl Pad {
 #[derive(Default)]
 pub struct Input {
     pad: Pad,
+    pub touch: crate::touch::TouchState,
     slot: Option<u32>,
     retry: f64,
     blocked: HashSet<String>,
     pub using_pad: bool,
+    pub using_touch: bool,
     pub disconnected: bool,
     focused: bool,
 }
@@ -322,32 +324,65 @@ impl Input {
         self.disconnected = self.pad.connected && raw.is_none() && self.using_pad;
         self.pad
             .update(raw, focused, prefs.pad_deadzone, get_frame_time().min(0.1));
+        let raw_touches: Vec<crate::touch::TouchPoint> =
+            touches().into_iter().map(Into::into).collect();
+        self.touch.update(
+            &raw_touches,
+            vec2(screen_width(), screen_height()),
+            prefs,
+            focused,
+        );
         if !focused {
             self.suppress();
         }
         self.blocked
             .retain(|s| physical(s, false) && !physical(s, true));
-        if focused
+        let pad_active = focused
             && (self.pad.pressed != 0
                 || self.pad.move_axis != Vec2::ZERO
-                || self.pad.look_axis != Vec2::ZERO)
-        {
+                || self.pad.look_axis != Vec2::ZERO);
+        let key_active = focused && KEYS.iter().any(|(_, k)| is_key_pressed(*k));
+        let mouse_active = focused
+            && raw_touches.is_empty()
+            && !self.touch.active_touches()
+            && ([MouseButton::Left, MouseButton::Right, MouseButton::Middle]
+                .iter()
+                .any(|b| is_mouse_button_pressed(*b))
+                || mouse_wheel().1 != 0.);
+        if pad_active {
             self.using_pad = true;
+            self.using_touch = false;
         }
-        if focused
-            && (KEYS.iter().any(|(_, k)| is_key_pressed(*k))
-                || [MouseButton::Left, MouseButton::Right, MouseButton::Middle]
-                    .iter()
-                    .any(|b| is_mouse_button_pressed(*b))
-                || mouse_wheel().1 != 0.)
-        {
+        if key_active || mouse_active {
             self.using_pad = false;
+            if key_active {
+                self.using_touch = false;
+            }
+        }
+        match prefs.touch_mode {
+            crate::touch::TouchMode::Off => self.using_touch = false,
+            crate::touch::TouchMode::On => {
+                self.using_touch = true;
+                self.using_pad = false;
+            }
+            crate::touch::TouchMode::Auto => {
+                if !raw_touches.is_empty() {
+                    self.using_touch = true;
+                    self.using_pad = false;
+                } else if crate::android::is_android() && !self.using_pad && !key_active {
+                    self.using_touch = true;
+                }
+            }
         }
         self.focused = focused;
+    }
+    pub fn set_touch_context(&mut self, ctx: crate::touch::TouchContext) {
+        self.touch.set_context(ctx);
     }
     /// On menus/load/focus boundaries, held inputs must be released before reuse.
     pub fn suppress(&mut self) {
         self.pad.suppress();
+        self.touch.suppress();
         for &(s, _) in KEYS {
             if physical(s, false) {
                 self.blocked.insert(s.into());
@@ -381,6 +416,8 @@ impl Input {
         };
         self.focused
             && (is_key_pressed(key)
+                || (key == KeyCode::Escape && is_key_pressed(KeyCode::Back))
+                || self.touch.ui_pressed(key)
                 || self.pad.nav_pressed & mask != 0
                 || match key {
                     KeyCode::Enter => self.pad_pressed("A"),
@@ -392,11 +429,16 @@ impl Input {
         if !self.focused {
             return false;
         }
+        if self.touch.action(original, edge) {
+            return true;
+        }
         let row = crate::preferences::BINDINGS
             .iter()
             .position(|(_, key)| *key == original);
         let name = row.map_or(original, |i| prefs.bindings[i].as_str());
-        (!self.blocked.contains(name) && physical(name, edge))
+        let ignore_emulated_mouse =
+            self.using_touch && matches!(name, "Mouse 1" | "Mouse 2" | "Mouse 3");
+        (!ignore_emulated_mouse && !self.blocked.contains(name) && physical(name, edge))
             || row.is_some_and(|i| {
                 let mask = pad_mask(&prefs.pad_bindings[i]);
                 (if edge {
@@ -421,14 +463,38 @@ impl Input {
         )
     }
     pub fn movement(&self) -> Vec2 {
-        self.pad.move_axis
+        (self.pad.move_axis + self.touch.move_axis()).clamp_length_max(1.)
     }
     pub fn look(&self, prefs: &Preferences) -> Vec2 {
         self.pad.look_axis
             * vec2(1., if prefs.invert_pad { -1. } else { 1. })
             * prefs.pad_sensitivity
     }
+    pub fn touch_look(&self, prefs: &Preferences) -> Vec2 {
+        self.touch.look_radians(screen_height(), prefs)
+    }
     pub fn label(&self, prefs: &Preferences, original: &str) -> String {
+        if self.using_touch {
+            return match original {
+                "Mouse 1" => "ATK 1",
+                "Mouse 2" => "ATK 2",
+                "Space" => "JUMP",
+                "E" => "USE",
+                "Ctrl" => "DIVE",
+                "Shift" => "RUN",
+                "C" => "CAT",
+                "I" => "TOYS",
+                "V" => "VIEW",
+                "Tab" => "MAP",
+                "H" => "HELP",
+                "R" => "FOOT",
+                "Enter" => "SKIP",
+                "Wheel Up" => "< TOY",
+                "Wheel Down" => "TOY >",
+                other => other,
+            }
+            .to_owned();
+        }
         crate::preferences::BINDINGS
             .iter()
             .position(|(_, key)| *key == original)

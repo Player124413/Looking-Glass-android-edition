@@ -279,6 +279,12 @@ pub async fn play(
     next_frame().await;
     loop {
         let focused = crate::look::window_focused();
+        let dt = get_frame_time().clamp(0., 0.1);
+        input.set_touch_context(crate::touch::TouchContext {
+            cinematic_active: true,
+            alive: true,
+            ..Default::default()
+        });
         input.update(preferences, focused);
         if !focused {
             paused = true;
@@ -289,7 +295,11 @@ pub async fn play(
             }
             return Ok(false);
         }
-        if focused && (input.ui(KeyCode::P) || input.pad_pressed("Start")) {
+        if focused
+            && (input.ui(KeyCode::P)
+                || input.pad_pressed("Start")
+                || (paused && input.using_touch && input.touch.screen_tapped()))
+        {
             paused = !paused;
         }
         let active = focused && !paused;
@@ -300,11 +310,12 @@ pub async fn play(
                 s.pause();
             }
         }
-        let dt = get_frame_time().clamp(0., 0.1);
         if skip.update(
             Some("story-movie"),
             active,
-            input.key(preferences, KeyCode::Enter, false) || input.pad_held("A"),
+            input.key(preferences, KeyCode::Enter, false)
+                || input.pad_held("A")
+                || input.touch.any_touch_down(),
             dt,
         ) {
             break;
@@ -342,9 +353,20 @@ pub async fn play(
                 ..Default::default()
             },
         );
-        skip.draw(ui, if input.using_pad { "A" } else { "Enter" });
+        skip.draw(
+            ui,
+            if input.using_touch {
+                "Screen"
+            } else if input.using_pad {
+                "A"
+            } else {
+                "Enter"
+            },
+        );
         if !active {
-            ui.paused(if input.using_pad {
+            ui.paused(if input.using_touch {
+                "Tap screen to resume film"
+            } else if input.using_pad {
                 "Start to resume film"
             } else {
                 "P to resume film"

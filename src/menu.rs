@@ -225,8 +225,10 @@ pub struct Menu {
     save_selected: usize,
     save_film: save_screen::Film,
     controls_pad: bool,
+    controls_touch: bool,
     controls_page: usize,
     using_pad: bool,
+    using_touch: bool,
     credits: Vec<String>,
     credit_offset: usize,
     mirror: crate::npc::Puppet,
@@ -368,8 +370,10 @@ impl Menu {
             save_selected: 0,
             save_film: save_screen::Film::load(assets)?,
             controls_pad: false,
+            controls_touch: crate::android::is_android(),
             controls_page: 0,
             using_pad: false,
+            using_touch: crate::android::is_android(),
             credits,
             credit_offset: 0,
             mirror,
@@ -442,6 +446,13 @@ impl Menu {
                 ];
                 if self.post_game || self.frontend {
                     buttons.pop();
+                }
+                if self.using_touch {
+                    buttons.push(Button::text(
+                        Rect::new(470., 440., 150., 32.),
+                        "Chapters",
+                        Click::Action(Action::Chapters),
+                    ));
                 }
                 buttons
             }
@@ -524,7 +535,9 @@ impl Menu {
             Page::Controls => {
                 let mut buttons = vec![Button {
                     rect: Rect::new(65., 62., 226., 28.),
-                    text: if self.controls_pad {
+                    text: if self.controls_touch {
+                        "Touch Controls"
+                    } else if self.controls_pad {
                         "Controller"
                     } else {
                         "Keyboard / Mouse"
@@ -534,36 +547,59 @@ impl Menu {
                     hover: String::new(),
                     click: Click::Device,
                 }];
-                let start = self.controls_page * 8;
-                for (row, (label, _)) in BINDINGS.iter().enumerate().skip(start).take(8) {
-                    buttons.push(Button {
-                        rect: Rect::new(65., 96. + (row - start) as f32 * 26., 226., 26.),
-                        text: (*label).into(),
-                        art: String::new(),
-                        hover: String::new(),
-                        click: Click::Row(row),
-                    });
-                }
-                if self.controls_pad && self.controls_page == BINDINGS.len().div_ceil(8) {
-                    for (i, label) in ["Look Sensitivity", "Invert Look", "Stick Deadzone"]
-                        .into_iter()
-                        .enumerate()
+                if self.controls_touch {
+                    let touch_base = BINDINGS.len() + 10;
+                    for (i, (label, y, h)) in [
+                        (format!("Overlay: {}", self.draft.touch_mode.name()), 96., 26.),
+                        ("Touch Sensitivity".into(), 124., 42.),
+                        ("Invert Touch Look".into(), 174., 26.),
+                        ("Button Size".into(), 202., 42.),
+                        ("HUD Opacity".into(), 252., 42.),
+                        ("Left-Handed Layout".into(), 302., 26.),
+                    ]
+                    .into_iter()
+                    .enumerate()
                     {
                         buttons.push(Button {
-                            rect: Rect::new(65., 110. + i as f32 * 66., 226., 44.),
-                            text: label.into(),
+                            rect: Rect::new(65., y, 226., h),
+                            text: label,
                             art: String::new(),
                             hover: String::new(),
-                            click: Click::Row(BINDINGS.len() + i),
+                            click: Click::Row(touch_base + i),
                         });
                     }
-                }
-                for (x, label, delta) in [(50., "Previous", -1), (206., "Next", 1)] {
-                    buttons.push(Button::text(
-                        Rect::new(x, 311., 100., 32.),
-                        label,
-                        Click::ControlsPage(delta),
-                    ));
+                } else {
+                    let start = self.controls_page * 8;
+                    for (row, (label, _)) in BINDINGS.iter().enumerate().skip(start).take(8) {
+                        buttons.push(Button {
+                            rect: Rect::new(65., 96. + (row - start) as f32 * 26., 226., 26.),
+                            text: (*label).into(),
+                            art: String::new(),
+                            hover: String::new(),
+                            click: Click::Row(row),
+                        });
+                    }
+                    if self.controls_pad && self.controls_page == BINDINGS.len().div_ceil(8) {
+                        for (i, label) in ["Look Sensitivity", "Invert Look", "Stick Deadzone"]
+                            .into_iter()
+                            .enumerate()
+                        {
+                            buttons.push(Button {
+                                rect: Rect::new(65., 110. + i as f32 * 66., 226., 44.),
+                                text: label.into(),
+                                art: String::new(),
+                                hover: String::new(),
+                                click: Click::Row(BINDINGS.len() + i),
+                            });
+                        }
+                    }
+                    for (x, label, delta) in [(50., "Previous", -1), (206., "Next", 1)] {
+                        buttons.push(Button::text(
+                            Rect::new(x, 311., 100., 32.),
+                            label,
+                            Click::ControlsPage(delta),
+                        ));
+                    }
                 }
                 buttons.push(Button::text(
                     Rect::new(125., 352., 100., 32.),
@@ -603,7 +639,7 @@ impl Menu {
                                 "{} x {}",
                                 SIZES[self.draft.resolution].0, SIZES[self.draft.resolution].1
                             ),
-                            112.,
+                            104.,
                         ),
                         (
                             if self.draft.fullscreen {
@@ -612,7 +648,11 @@ impl Menu {
                                 "Windowed"
                             }
                             .into(),
-                            210.,
+                            184.,
+                        ),
+                        (
+                            format!("Preset: {}", self.draft.performance_preset.name()),
+                            252.,
                         ),
                     ],
                     Page::Audio => vec![
@@ -678,6 +718,9 @@ impl Menu {
                 .rem_euclid(SIZES.len() as i32) as usize
             }
             (Page::Video, 1) => self.draft.fullscreen = !self.draft.fullscreen,
+            (Page::Video, 2) => {
+                self.draft.performance_preset = self.draft.performance_preset.next(delta)
+            }
             (Page::Audio, 0) => {
                 self.draft_audio.music = (self.draft_audio.music + delta * 0.05).clamp(0., 1.)
             }
@@ -703,8 +746,27 @@ impl Menu {
             (Page::Controls, row) if row == BINDINGS.len() + 1 => {
                 self.draft.invert_pad = !self.draft.invert_pad
             }
-            (Page::Controls, _) => {
+            (Page::Controls, row) if row == BINDINGS.len() + 2 => {
                 self.draft.pad_deadzone = (self.draft.pad_deadzone + delta * 0.02).clamp(0.1, 0.4)
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 10 => {
+                self.draft.touch_mode = self.draft.touch_mode.next(delta)
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 11 => {
+                self.draft.touch_sensitivity =
+                    (self.draft.touch_sensitivity + delta * 0.1).clamp(0.2, 3.)
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 12 => {
+                self.draft.invert_touch = !self.draft.invert_touch
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 13 => {
+                self.draft.touch_scale = (self.draft.touch_scale + delta * 0.05).clamp(0.6, 1.6)
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 14 => {
+                self.draft.touch_opacity = (self.draft.touch_opacity + delta * 0.05).clamp(0.2, 1.0)
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 15 => {
+                self.draft.touch_left_handed = !self.draft.touch_left_handed
             }
             _ => (),
         }
@@ -716,6 +778,10 @@ impl Menu {
             (Page::Game, 3) => Some(self.draft.always_run),
             (Page::Game, 4) => Some(self.draft.subtitles),
             (Page::Controls, row) if row == BINDINGS.len() + 1 => Some(self.draft.invert_pad),
+            (Page::Controls, row) if row == BINDINGS.len() + 12 => Some(self.draft.invert_touch),
+            (Page::Controls, row) if row == BINDINGS.len() + 15 => {
+                Some(self.draft.touch_left_handed)
+            }
             _ => None,
         }
     }
@@ -735,6 +801,15 @@ impl Menu {
             (Page::Controls, row) if row == BINDINGS.len() + 2 => {
                 Some((self.draft.pad_deadzone - 0.1) / 0.3)
             }
+            (Page::Controls, row) if row == BINDINGS.len() + 11 => {
+                Some(((self.draft.touch_sensitivity - 0.2) / 2.8).clamp(0., 1.))
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 13 => {
+                Some(((self.draft.touch_scale - 0.6) / 1.0).clamp(0., 1.))
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 14 => {
+                Some(((self.draft.touch_opacity - 0.2) / 0.8).clamp(0., 1.))
+            }
             _ => None,
         }
     }
@@ -750,6 +825,15 @@ impl Menu {
             }
             (Page::Controls, row) if row == BINDINGS.len() + 2 => {
                 self.draft.pad_deadzone = 0.1 + v * 0.3
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 11 => {
+                self.draft.touch_sensitivity = 0.2 + v * 2.8
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 13 => {
+                self.draft.touch_scale = 0.6 + v * 1.0
+            }
+            (Page::Controls, row) if row == BINDINGS.len() + 14 => {
+                self.draft.touch_opacity = 0.2 + v * 0.8
             }
             _ => (),
         }
@@ -980,7 +1064,11 @@ impl Menu {
                 Rect::new(48., 319., 256., 64.),
                 1.,
             );
-            for (title, y) in [("Window Resolution", 80.), ("Display Mode", 178.)] {
+            for (title, y) in [
+                ("Window Resolution", 76.),
+                ("Display Mode", 156.),
+                ("Performance Profile", 224.),
+            ] {
                 self.ui
                     .font
                     .draw(canvas, title, Rect::new(65., y, 226., 26.), 24., ink);
@@ -993,15 +1081,14 @@ impl Menu {
             };
             self.ui
                 .font
-                .draw(canvas, preset, Rect::new(65., 141., 226., 21.), 18., ink);
-            for (text, y) in [
-                ("Fullscreen fits your desktop.", 257.),
-                ("Windowed uses the size above.", 281.),
-            ] {
-                self.ui
-                    .font
-                    .draw(canvas, text, Rect::new(65., y, 226., 21.), 17., ink);
-            }
+                .draw(canvas, preset, Rect::new(65., 131., 226., 21.), 18., ink);
+            self.ui.font.draw(
+                canvas,
+                "Balances detail, lights & shadows.",
+                Rect::new(65., 282., 226., 21.),
+                16.,
+                ink,
+            );
         }
         if matches!(page, Page::Audio | Page::Game) {
             let name = match page {
@@ -1213,7 +1300,7 @@ impl Menu {
                 19.,
                 WHITE,
             );
-            if page == Page::Controls {
+            if page == Page::Controls && !self.controls_touch {
                 self.ui.font.draw(
                     canvas,
                     &format!(
@@ -1227,7 +1314,7 @@ impl Menu {
                 );
             }
         }
-        if page == Page::Main && !buttons.is_empty() {
+        if page == Page::Main && !buttons.is_empty() && !self.using_touch {
             self.ui.font.draw(
                 canvas,
                 if self.frontend || self.post_game {
@@ -1272,13 +1359,14 @@ impl Menu {
             let focused = crate::look::window_focused();
             input.update(prefs, focused);
             self.using_pad = input.using_pad;
+            self.using_touch = input.using_touch;
             self.save_film.update_audio(audio.settings, focused);
             let previous_selected = self.selected;
             let buttons = self.buttons(page);
             self.selected = self.selected.min(buttons.len().saturating_sub(1));
             audio.update(0., listener, yaw, true, true);
             let canvas = Canvas::new(screen_width(), screen_height());
-            let mouse = Vec2::from(mouse_position());
+            let (mouse, pointer_pressed, pointer_down) = crate::touch::pointer_state();
             let hit = buttons
                 .iter()
                 .position(|b| b.rect.contains(canvas.pointer(mouse)));
@@ -1305,12 +1393,12 @@ impl Menu {
                         }
                     }
                 } else {
-                    if mouse.distance_squared(self.previous_pointer) > 1. {
+                    if mouse.distance_squared(self.previous_pointer) > 1. || pointer_pressed {
                         if let Some(i) = hit {
                             self.selected = i;
                         }
                     }
-                    if is_mouse_button_down(MouseButton::Left) {
+                    if pointer_down {
                         if let Some(i) = hit {
                             if let Click::Row(row) = buttons[i].click {
                                 let p = canvas.pointer(mouse);
@@ -1344,7 +1432,7 @@ impl Menu {
                         Some(Click::Page(Page::Controls))
                     } else if page == Page::Settings && is_key_pressed(KeyCode::Key4) {
                         Some(Click::Page(Page::Game))
-                    } else if is_mouse_button_pressed(MouseButton::Left) {
+                    } else if pointer_pressed {
                         hit.map(|i| buttons[i].click)
                     } else if input.ui(KeyCode::Enter) {
                         Some(buttons[self.selected].click)
@@ -1391,13 +1479,13 @@ impl Menu {
                                 action = Some(a);
                             }
                             Click::Row(row) => {
-                                if !(is_mouse_button_pressed(MouseButton::Left)
+                                if !(pointer_pressed
                                     && self.slider(page, row).is_some()
                                     && canvas.pointer(mouse).y
                                         >= buttons[hit.unwrap_or(self.selected)].rect.y + 26.)
                                 {
                                     let previous = page == Page::Video
-                                        && is_mouse_button_pressed(MouseButton::Left)
+                                        && pointer_pressed
                                         && hit.is_some_and(|i| {
                                             canvas.pointer(mouse).x < buttons[i].rect.x + 24.
                                         });
@@ -1406,7 +1494,14 @@ impl Menu {
                             }
                             Click::Reset => {
                                 let defaults = Preferences::default();
-                                if self.controls_pad {
+                                if self.controls_touch {
+                                    self.draft.touch_mode = defaults.touch_mode;
+                                    self.draft.touch_sensitivity = defaults.touch_sensitivity;
+                                    self.draft.invert_touch = defaults.invert_touch;
+                                    self.draft.touch_scale = defaults.touch_scale;
+                                    self.draft.touch_opacity = defaults.touch_opacity;
+                                    self.draft.touch_left_handed = defaults.touch_left_handed;
+                                } else if self.controls_pad {
                                     self.draft.pad_bindings = defaults.pad_bindings;
                                     self.draft.pad_sensitivity = defaults.pad_sensitivity;
                                     self.draft.pad_deadzone = defaults.pad_deadzone;
@@ -1417,7 +1512,14 @@ impl Menu {
                             }
                             Click::ControlsPage(delta) => self.controls_page(delta),
                             Click::Device => {
-                                self.controls_pad = !self.controls_pad;
+                                if !self.controls_pad && !self.controls_touch {
+                                    self.controls_pad = true;
+                                } else if self.controls_pad {
+                                    self.controls_pad = false;
+                                    self.controls_touch = true;
+                                } else {
+                                    self.controls_touch = false;
+                                }
                                 self.controls_page = 0;
                                 self.selected = 0;
                             }
@@ -1464,7 +1566,8 @@ impl Menu {
                             }
                             Click::Apply => {
                                 let display_changed = prefs.resolution != self.draft.resolution
-                                    || prefs.fullscreen != self.draft.fullscreen;
+                                    || prefs.fullscreen != self.draft.fullscreen
+                                    || prefs.performance_preset != self.draft.performance_preset;
                                 match self.draft.save().and_then(|_| self.draft_audio.save()) {
                                     Ok(()) => {
                                         *prefs = self.draft.clone();
@@ -1500,7 +1603,7 @@ impl Menu {
             let buttons = self.buttons(page);
             self.selected = self.selected.min(buttons.len().saturating_sub(1));
             self.draw(page, &buttons);
-            if focused {
+            if focused && !self.using_touch {
                 self.ui.cursor();
             }
             if focused && is_key_pressed(KeyCode::F12) {

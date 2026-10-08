@@ -22,6 +22,8 @@ pub struct Chapters {
     top: usize,
     wheel: f32,
     last_click: Option<(usize, f64, Vec2)>,
+    drag_last_y: Option<f32>,
+    dragged: bool,
 }
 
 impl Chapters {
@@ -40,9 +42,29 @@ impl Chapters {
         // Miniquad exposes raw Windows WHEEL_DELTA units, not notches.
         let wheel_unit = if cfg!(target_os = "windows") { 120. } else { 1. };
         self.scroll(mouse_wheel().1 / wheel_unit, count);
-        let hit = if is_mouse_button_pressed(MouseButton::Left) {
-            let canvas = ui::Canvas::new(screen_width(), screen_height());
-            self.click(canvas.pointer(Vec2::from(mouse_position())), get_time(), count)
+        let canvas = ui::Canvas::new(screen_width(), screen_height());
+        let (raw_pos, pointer_pressed, pointer_down) = crate::touch::pointer_state();
+        let pointer = canvas.pointer(raw_pos);
+        if pointer_pressed && LIST.contains(pointer) {
+            self.drag_last_y = Some(pointer.y);
+            self.dragged = false;
+        } else if pointer_down {
+            if let Some(last_y) = self.drag_last_y {
+                let dy = pointer.y - last_y;
+                if dy.abs() > 14. {
+                    let row_steps = (dy / 27.).trunc();
+                    if row_steps != 0. {
+                        self.scroll(row_steps / 3., count);
+                        self.drag_last_y = Some(last_y + row_steps * 27.);
+                        self.dragged = true;
+                    }
+                }
+            }
+        } else {
+            self.drag_last_y = None;
+        }
+        let hit = if pointer_pressed {
+            self.click(pointer, get_time(), count)
         } else { None };
         if is_key_pressed(KeyCode::D) || input.pad_pressed("Y") || hit == Some(Hit::Difficulty) {
             *difficulty = Difficulty::ALL[(*difficulty as usize + 1) % 4];
@@ -132,7 +154,7 @@ impl Chapters {
     ) {
         let canvas = ui::Canvas::new(screen_width(), screen_height());
         let hover = interactive
-            .then(|| self.hit(canvas.pointer(Vec2::from(mouse_position())), choices.len()))
+            .then(|| self.hit(canvas.pointer(crate::touch::pointer_state().0), choices.len()))
             .flatten();
         ui.panel(canvas.rect(Rect::new(16., 16., 608., 448.)));
         ui.font.draw(

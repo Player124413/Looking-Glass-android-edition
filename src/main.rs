@@ -1,5 +1,6 @@
 mod acting;
 mod ambient_animation;
+mod android;
 mod animation_events;
 mod ant;
 mod assets;
@@ -105,6 +106,7 @@ mod story;
 mod tan;
 mod targeting;
 mod texture;
+mod touch;
 mod traversal;
 mod ui;
 mod viewer;
@@ -155,17 +157,21 @@ fn main() {
     }
 }
 
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn quad_main() {
+    android::init_runtime();
+    main();
+}
+
 fn run() -> Result<()> {
+    android::init_runtime();
     let mut o = Options {
         difficulty: Default::default(),
-        save_dir: PathBuf::from("private/saves"),
+        save_dir: android::default_save_dir(),
         load: None,
         new_game: false,
-        data: std::fs::read_to_string("private/data-path.txt")
-            .ok()
-            .filter(|path| !path.trim().is_empty())
-            .map(|path| PathBuf::from(path.trim()))
-            .unwrap_or_else(|| PathBuf::from("alice_202106/Alice1/bin/base")),
+        data: android::default_data_dir(),
         map: "skool1".into(),
         direct_map: false,
         entry: None,
@@ -501,7 +507,27 @@ fn run() -> Result<()> {
     if o.capture.is_some() && o.frames.is_none() {
         bail!("--capture requires --frames");
     }
-    let mut assets = Assets::open(&o.data)?;
+    let mut assets = match Assets::open(&o.data) {
+        Ok(assets) => assets,
+        Err(_err) if mode == "view" && android::is_android() => {
+            macroquad::Window::from_config(viewer::config(), async move {
+                match android::wait_for_data(o.data.clone()).await {
+                    Ok(assets) => {
+                        if let Err(e) = viewer::run(assets, o).await {
+                            eprintln!("Viewer failed: {e:#}");
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Setup aborted: {e:#}");
+                        std::process::exit(1);
+                    }
+                }
+            });
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
     if mode == "campaign-playtest" {
         macroquad::Window::from_config(viewer::config(), async move {
             if let Err(e) = campaign_playtest::run(&mut assets, chain, o.difficulty).await {

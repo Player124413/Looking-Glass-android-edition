@@ -1,6 +1,6 @@
-# Rebindable controls and controllers
+# Rebindable controls, controllers and multi-touch
 
-Open **Escape / Start → Settings → Controls**. Select the heading to switch between Keyboard / Mouse and Controller. All changes are staged: **Apply** saves them, **Cancel** discards them. **Reset** restores the selected device's defaults. The original parchment, buttons, fonts and menu layouts are retained.
+Open **Escape / Start → Settings → Controls**. Select the heading to switch between **Keyboard / Mouse**, **Controller**, and **Touch Controls**. All changes are staged: **Apply** saves them, **Cancel** discards them. **Reset** restores the selected device's defaults. The original parchment, buttons, fonts and menu layouts are retained.
 
 Select an action and press its new input. Keyboard bindings accept letters, numbers, punctuation, modifiers, navigation/numpad keys, F5–F11, left/right/middle mouse and either wheel direction. Controller bindings accept face buttons, triggers, bumpers, stick clicks, D-pad and Back/View. Assigning an occupied input swaps the two actions. Delete clears a controller binding while capturing. Escape cancels capture; Start also cancels controller capture. Escape, console (`~`), F1–F4 and F12 keep their interface/developer functions. Menu navigation always uses its fixed controls, regardless of gameplay bindings.
 
@@ -32,6 +32,24 @@ In menus: D-pad or left stick browses, A selects, B returns, Left/Right adjusts 
 The game uses the Windows system [XInput API](https://learn.microsoft.com/en-us/windows/win32/xinput/getting-started-with-xinput). Xbox controllers and devices exposing XInput are supported. Native PlayStation/DirectInput/HID protocols, rumble, motion controls and local multiplayer are not implemented. No controller driver is installed by the game. On non-Windows builds, keyboard and mouse remain available.
 
 Controllers can be connected during play. A disconnected active controller pauses the game; keyboard and mouse remain usable. Release buttons and centre the sticks after connecting, returning to the window or leaving an overlay. Held input is suppressed across these boundaries so menus, save loads and reconnections do not fire a weapon or move Alice unexpectedly. Prompts follow the most recently used input and the chosen bindings.
+
+## Multi-touch controls (Android & touch displays)
+
+On Android (or when **Touch Controls** is enabled in **Settings → Controls**), Looking Glass displays a context-sensitive multi-touch HUD:
+
+| Touch Zone / Button | Gameplay Function |
+| --- | --- |
+| Left thumb zone (floating stick) | Move / walk (inner ring) / run (outer ring `>78%`) / swim / swing on ropes |
+| Right half of screen (drag) | Smooth relative camera look and vertical pitch |
+| Primary (`Attack`) | Primary toy attack (`Mouse 1`); drag while holding to aim while firing |
+| Alternate (`Alt`) | Secondary toy attack (`Mouse 2`); drag while holding to aim while firing |
+| Jump / Rise | Jump, climb ropes, or swim upward (`Space`) |
+| Dive / Down | Swim downward or descend on ropes (`Ctrl`, shown contextually) |
+| Use / Talk / Skip | Interact, grab ropes, talk to NPCs, or advance dialogue (`E`, shown contextually) |
+| Top utility bar | `Menu` (`Esc`), `Toys` (`I` inventory), `Prev` / `Next` toy, `Hint` (`C` Cheshire Cat), `Cam` (`V`), and `QSave` (`F5`) |
+| Android Back button | Closes Inventory / Chapter Chooser, or opens / backs out of the Main Menu |
+
+In **Settings → Controls → Touch Controls**, you can configure the Touch Overlay mode (`Auto`, `Always On`, `Off`), Touch Sensitivity (`0.2`–`3.0`), Invert Touch Look, Button Size (`0.6x`–`1.6x`), HUD Opacity (`20%`–`100%`), and Left-Handed Layout. See [docs/ANDROID.md](ANDROID.md) for full details.
 
 ## Persistence and saves
 

@@ -24,8 +24,32 @@ serde_json = { version = "=1.0.145", features = ["float_roundtrip"] }
 glam = { version = "=0.27.0", features = ["serde"] }
 sha2 = "=0.10.9"
 
+[target.'cfg(target_os = "android")'.dependencies]
+ndk-context = "=0.1.1"
+
 [profile.dev]
 opt-level = 1
 
 [profile.release]
 lto = "thin"
+
+[package.metadata.android]
+package_name = "com.lookingglass.alice"
+label = "Looking Glass"
+version_code = 3200
+version_name = "0.32.0"
+min_sdk_version = 26
+target_sdk_version = 34
+orientation = "sensorLandscape"
+fullscreen = true
+opengles_version_major = 2
+opengles_version_minor = 0
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 29
+

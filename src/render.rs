@@ -549,11 +549,12 @@ fn draw_batch(
     if can_cull && context.enabled && !backdrop && batch.parts.is_empty() {
         let center = (min + max) * 0.5;
         let radius = (max - min).length() * 0.5;
+        let max_error = crate::android::active_preset().lod_error_limit();
         if let Some(level) = batch
             .detail
             .iter()
             .rev()
-            .find(|l| crate::render_fx::projected_error(center, radius, l.error) <= 0.35)
+            .find(|l| crate::render_fx::projected_error(center, radius, l.error) <= max_error)
         {
             context.stats.detail_saved += (batch.mesh.indices.len() - level.indices.len()) / 3;
             batch.mesh.indices.clone_from(&level.indices);

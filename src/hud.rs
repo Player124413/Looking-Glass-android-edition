@@ -277,7 +277,9 @@ impl Hud {
             self.ui.center(
                 &format!(
                     "{} - retry",
-                    if input.using_pad {
+                    if input.using_touch {
+                        "Tap Retry".into()
+                    } else if input.using_pad {
                         "A".into()
                     } else {
                         input.label(prefs, "Enter")
@@ -288,7 +290,9 @@ impl Hud {
                 crate::ui::INK,
             );
             self.ui.center(
-                if input.using_pad {
+                if input.using_touch {
+                    "Menu - load a game or change options"
+                } else if input.using_pad {
                     "Start - load a game or change options"
                 } else {
                     "Esc - load a game or change options"
@@ -300,11 +304,26 @@ impl Hud {
         }
     }
     pub fn inventory_hit(&self) -> Option<usize> {
-        if !is_mouse_button_pressed(MouseButton::Left) {
+        let (p, pressed, _) = crate::touch::pointer_state();
+        if !pressed {
             return None;
         }
-        let p = Vec2::from(mouse_position());
         (0..10).find(|&i| slot(i).contains(p))
+    }
+    pub fn inventory_close_hit(&self) -> bool {
+        let (p, pressed, _) = crate::touch::pointer_state();
+        if !pressed {
+            return false;
+        }
+        let first = slot(0);
+        let last = slot(9);
+        let panel = Rect::new(
+            first.x - 16.,
+            first.y - 112.,
+            last.right() - first.x + 32.,
+            last.bottom() - first.y + 214.,
+        );
+        !panel.contains(p)
     }
     fn draw_inventory(
         &self,
@@ -337,7 +356,9 @@ impl Hud {
             ink,
         );
         self.ui.center(
-            &if input.using_pad {
+            &if input.using_touch {
+                "Tap a toy to equip    Tap outside to return".into()
+            } else if input.using_pad {
                 "D-pad: select    A: equip    B: return".into()
             } else {
                 format!(
@@ -368,7 +389,7 @@ impl Hud {
                 },
             );
             self.ui.font.left(
-                &if input.using_pad {
+                &if input.using_pad || input.using_touch {
                     String::new()
                 } else {
                     input.label(prefs, &format!("{}", (i + 1) % 10))

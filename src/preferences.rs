@@ -5,10 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub fn path(name: &str) -> PathBuf {
-    std::env::var_os("LOOKING_GLASS_SETTINGS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("private"))
-        .join(name)
+    crate::android::storage_root().join(name)
 }
 
 pub const SIZES: [(u32, u32); 8] = [
@@ -104,6 +101,13 @@ pub struct Preferences {
     pub pad_sensitivity: f32,
     pub pad_deadzone: f32,
     pub invert_pad: bool,
+    pub touch_mode: crate::touch::TouchMode,
+    pub touch_sensitivity: f32,
+    pub invert_touch: bool,
+    pub touch_scale: f32,
+    pub touch_opacity: f32,
+    pub touch_left_handed: bool,
+    pub performance_preset: crate::android::PerformancePreset,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -120,6 +124,13 @@ impl Default for Preferences {
             pad_sensitivity: 1.,
             pad_deadzone: 0.24,
             invert_pad: false,
+            touch_mode: crate::touch::TouchMode::Auto,
+            touch_sensitivity: 1.,
+            invert_touch: false,
+            touch_scale: 1.,
+            touch_opacity: 0.78,
+            touch_left_handed: false,
+            performance_preset: crate::android::PerformancePreset::Auto,
         }
     }
 }
@@ -145,6 +156,18 @@ impl Preferences {
         ensure!(
             self.pad_deadzone.is_finite() && (0.1..=0.4).contains(&self.pad_deadzone),
             "Invalid controller deadzone"
+        );
+        ensure!(
+            self.touch_sensitivity.is_finite() && (0.2..=3.).contains(&self.touch_sensitivity),
+            "Invalid touch sensitivity"
+        );
+        ensure!(
+            self.touch_scale.is_finite() && (0.6..=1.6).contains(&self.touch_scale),
+            "Invalid touch button scale"
+        );
+        ensure!(
+            self.touch_opacity.is_finite() && (0.2..=1.).contains(&self.touch_opacity),
+            "Invalid touch opacity"
         );
         for (i, key) in self.bindings.iter().enumerate() {
             ensure!(
@@ -200,12 +223,16 @@ impl Preferences {
         Ok(())
     }
     pub fn display(&self) {
-        set_fullscreen(self.fullscreen);
-        if !self.fullscreen {
-            let (w, h) = SIZES[self.resolution];
-            // Menu resolutions are framebuffer pixels, independent of desktop DPI.
-            // Fullscreen remains borderless at the desktop's native resolution.
-            miniquad::window::set_window_size(w, h);
+        crate::android::set_active_preset(self.performance_preset);
+        #[cfg(not(target_os = "android"))]
+        {
+            set_fullscreen(self.fullscreen);
+            if !self.fullscreen {
+                let (w, h) = SIZES[self.resolution];
+                // Menu resolutions are framebuffer pixels, independent of desktop DPI.
+                // Fullscreen remains borderless at the desktop's native resolution.
+                miniquad::window::set_window_size(w, h);
+            }
         }
     }
     pub fn bind(&mut self, row: usize, name: &str, pad: bool) -> bool {
@@ -309,5 +336,25 @@ mod tests {
             Preferences::parse(&serde_json::to_vec(&p).unwrap()).unwrap(),
             p
         );
+    }
+    #[test]
+    fn touch_and_performance_preferences_validate_and_roundtrip() {
+        let p = Preferences {
+            touch_mode: crate::touch::TouchMode::On,
+            touch_sensitivity: 1.8,
+            invert_touch: true,
+            touch_scale: 1.25,
+            touch_opacity: 0.65,
+            touch_left_handed: true,
+            performance_preset: crate::android::PerformancePreset::Balanced,
+            ..Default::default()
+        };
+        assert_eq!(
+            Preferences::parse(&serde_json::to_vec(&p).unwrap()).unwrap(),
+            p
+        );
+        assert!(Preferences::parse(br#"{"touch_sensitivity":0.05}"#).is_err());
+        assert!(Preferences::parse(br#"{"touch_scale":2.5}"#).is_err());
+        assert!(Preferences::parse(br#"{"touch_opacity":0.05}"#).is_err());
     }
 }

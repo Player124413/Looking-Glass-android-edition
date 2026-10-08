@@ -14,11 +14,13 @@ use anyhow::{Context, Result};
 use macroquad::prelude::*;
 
 pub fn config() -> macroquad::conf::Conf {
+    let android = crate::android::is_android();
     macroquad::conf::Conf {
         miniquad_conf: Conf {
             window_title: "Looking Glass".into(),
             window_width: 1200,
             window_height: 680,
+            fullscreen: android,
             high_dpi: true,
             sample_count: 1,
             ..Default::default()
@@ -867,6 +869,71 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
     retry.remember(game_snapshot!());
     loop {
         let mut frame_profile = crate::frame_profile::span("frame_cpu");
+        let current_aim = vec3(
+            yaw.cos() * pitch.cos(),
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+        );
+        let can_use = player.rope_prompt(&scene.world).is_some()
+            || interactions
+                .pandemonium
+                .as_ref()
+                .is_some_and(|p| p.prompt(&scene.world, player.eye()).is_some())
+            || interactions
+                .conversation(&scene.world, player.eye(), current_aim, &npcs, &story)
+                .is_some()
+            || interactions
+                .prompt(&scene.world, player.eye(), current_aim)
+                .is_some();
+        let cutscene_active = interactions
+            .village
+            .as_ref()
+            .is_some_and(|v| v.cinema.active())
+            || interactions
+                .fortress
+                .as_ref()
+                .is_some_and(|f| f.state.cinema.active())
+            || interactions
+                .duchess
+                .as_ref()
+                .and_then(|d| d.scene_id())
+                .is_some()
+            || interactions
+                .pandemonium
+                .as_ref()
+                .and_then(|p| p.scene_id())
+                .is_some()
+            || interactions
+                .beyond
+                .as_ref()
+                .is_some_and(|b| b.scene_id().is_some())
+            || interactions.scene_id_after(None).is_some()
+            || interactions
+                .pool
+                .as_ref()
+                .is_some_and(|p| p.scene_id().is_some())
+            || interactions
+                .school
+                .as_ref()
+                .is_some_and(|s| s.scene_id().is_some());
+        input.set_touch_context(crate::touch::TouchContext {
+            in_gameplay: !menu && !inventory_menu && !console.open && !paused,
+            paused,
+            inventory_open: inventory_menu,
+            help_open: get_time() < help_until,
+            alive: stats.alive(),
+            swimming: player.immersion.level >= 2,
+            climbing_rope: player.rope.is_some()
+                || player.script_motion == 1
+                || interactions
+                    .pandemonium
+                    .as_ref()
+                    .is_some_and(|p| p.rope_hand().is_some()),
+            flying,
+            dialogue_active: story.busy(),
+            cinematic_active: cutscene_active,
+            can_interact: can_use,
+        });
         input.update(&preferences, window_focused());
         let overlay_before = menu || inventory_menu || console.open || paused;
         let context_before = (menu, inventory_menu, console.open, paused);
@@ -878,7 +945,10 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             break;
         }
         if window_focused() && !console.open {
-            if (is_key_pressed(KeyCode::Escape) || input.pad_pressed("Start"))
+            if (is_key_pressed(KeyCode::Escape)
+                || is_key_pressed(KeyCode::Back)
+                || input.pad_pressed("Start")
+                || input.touch.menu_pressed())
                 && !menu
                 && !inventory_menu
             {
@@ -1356,15 +1426,20 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             clock.pause();
         }
         let was_paused = paused;
+        let (pointer_pos, pointer_pressed, _) = crate::touch::pointer_state();
         if paused
             && focused
             && !menu
             && !inventory_menu
             && !console_input
-            && (is_mouse_button_pressed(MouseButton::Left) || input.pad_pressed("A"))
+            && get_time() >= help_until
+            && (pointer_pressed || input.pad_pressed("A"))
         {
-            let (mx, my) = mouse_position();
-            if mx >= 0. && my >= 0. && mx < screen_width() && my < screen_height() {
+            if pointer_pos.x >= 0.
+                && pointer_pos.y >= 0.
+                && pointer_pos.x < screen_width()
+                && pointer_pos.y < screen_height()
+            {
                 paused = false;
                 clock.pause();
             }
@@ -1388,6 +1463,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 && !inventory_menu
                 && !console_input
                 && !scripted_view
+                && !input.using_touch
                 && stats.alive(),
             &mut yaw,
             &mut pitch,
@@ -1416,9 +1492,14 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             if let Some(i) = selected {
                 if stats.select(i) {
                     hud.selected(&stats);
+                    if inventory_menu && input.using_touch {
+                        inventory_menu = false;
+                    }
                 } else {
                     hud.announce(format!("Not yet available: {}", inventory::WEAPONS[i].1));
                 }
+            } else if inventory_menu && hud.inventory_close_hit() {
+                inventory_menu = false;
             }
             let previous = input.action(&preferences, "Wheel Up", true)
                 || (inventory_menu && (input.ui(KeyCode::Up) || input.ui(KeyCode::Left)));
@@ -1511,7 +1592,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 && focused
                 && !flying
                 && stats.alive(),
-            held(KeyCode::Enter) || input.pad_held("A"),
+            held(KeyCode::Enter)
+                || input.pad_held("A")
+                || (skip_id.is_some() && input.touch.any_touch_down()),
             dt,
         );
         if skip_requested {
@@ -1758,6 +1841,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 let look = input.look(&preferences);
                 yaw -= look.x * dt * 2.5;
                 pitch += look.y * dt * 2.;
+                let touch_look = input.touch_look(&preferences);
+                yaw -= touch_look.x;
+                pitch += touch_look.y;
             }
             if !scripted_view && held(KeyCode::Left) {
                 yaw += dt * 1.3;
@@ -1794,10 +1880,10 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             if flying {
                 player.release_rope();
             }
-            if flying && held(KeyCode::E) {
+            if flying && (held(KeyCode::E) || (input.using_touch && held(KeyCode::Space))) {
                 movement.z += 1.;
             }
-            if flying && held(KeyCode::Q) {
+            if flying && (held(KeyCode::Q) || (input.using_touch && held(KeyCode::LeftControl))) {
                 movement.z -= 1.;
             }
             let speed = if held(KeyCode::LeftShift) { 800. } else { 220. };
@@ -1829,7 +1915,11 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                         .prompt(&scene.world, player.eye(), aim)
                         .is_some(),
                 );
-                let use_pressed = pressed(KeyCode::E);
+                let use_pressed = pressed(KeyCode::E)
+                    || (owner == UseOwner::Dialogue
+                        && input.using_touch
+                        && pointer_pressed
+                        && pointer_pos.y > screen_height() * 0.72);
                 advance_dialogue = use_pressed && owner == UseOwner::Dialogue;
                 let mut events = interaction::Events::default();
                 if use_pressed && owner == UseOwner::Talk {
@@ -3077,7 +3167,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             .or_else(|| help.then(|| story.objective().map(str::to_owned)).flatten());
         let show_details = help || menu;
         if paused && !menu && !inventory_menu && !console_input && !help {
-            ui.paused(&if input.using_pad {
+            ui.paused(&if input.using_touch {
+                "Tap screen to resume".into()
+            } else if input.using_pad {
                 "A or Start to resume".into()
             } else {
                 format!("{} or click to resume", input.label(&preferences, "P"))
@@ -3105,7 +3197,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                     );
                 }
             }
-            let movement = if input.using_pad {
+            let movement = if input.using_touch {
+                "Left stick: move   Jump/Rise: jump or swim up   Dive: crouch or dive".into()
+            } else if input.using_pad {
                 format!(
                     "Left stick: move   {}: jump / rise   {}: dive",
                     input.label(&preferences, "Space"),
@@ -3126,7 +3220,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 movement,
                 format!(
                     "{}: look   {}: change view",
-                    if input.using_pad {
+                    if input.using_touch {
+                        "Right side drag"
+                    } else if input.using_pad {
                         "Right stick"
                     } else {
                         "Mouse / look keys"
@@ -3134,7 +3230,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                     input.label(&preferences, "V")
                 ),
                 format!(
-                    "{} / {}: primary / alternate attack",
+                    "{} / {}: primary / alternate attack (drag to aim)",
                     input.label(&preferences, "Mouse 1"),
                     input.label(&preferences, "Mouse 2")
                 ),
@@ -3155,7 +3251,13 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 ),
                 format!(
                     "{}: menus   {}: chapters   {}: help",
-                    if input.using_pad { "Start" } else { "Esc" },
+                    if input.using_touch {
+                        "Menu"
+                    } else if input.using_pad {
+                        "Start"
+                    } else {
+                        "Esc"
+                    },
                     input.label(&preferences, "Tab"),
                     input.label(&preferences, "H")
                 ),
@@ -3185,6 +3287,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             if !paused && !inventory_menu && !console_input && stats.alive() {
                 hud.draw_notice();
             }
+        }
+        if input.using_touch && !menu && !console_input {
+            input.touch.draw(&ui, &preferences);
         }
         if !menu && !inventory_menu && !console_input && stats.alive() {
             let cover = camera_handoff.overlay();
@@ -3288,7 +3393,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             {
                 skip_scene.draw(
                     &ui,
-                    &if input.using_pad {
+                    &if input.using_touch {
+                        "Screen".into()
+                    } else if input.using_pad {
                         "A".into()
                     } else {
                         input.label(&preferences, "Enter")
@@ -3303,7 +3410,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             ui.toast(&notice, 74.);
         }
         show_mouse(!focused);
-        if focused && (menu || inventory_menu || paused) {
+        if focused && (menu || inventory_menu || paused) && !input.using_touch {
             ui.cursor();
         }
         console.draw(&ui);

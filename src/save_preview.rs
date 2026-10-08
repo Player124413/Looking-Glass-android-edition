@@ -57,6 +57,7 @@ impl Preview {
 #[derive(Default)]
 pub struct Frame {
     texture: Option<Texture2D>,
+    tick: u32,
 }
 
 /// Isolated native persistence/menu regression; never opens player save slots.
@@ -210,6 +211,11 @@ impl Frame {
     }
     /// Call after the world and first-person toy, before any menus/HUD/cursor.
     pub fn update(&mut self) {
+        let interval = crate::android::active_preset().save_preview_interval();
+        self.tick = self.tick.wrapping_add(1);
+        if self.texture.is_some() && interval > 1 && self.tick % interval != 0 {
+            return;
+        }
         let (w, h) = macroquad::miniquad::window::screen_size();
         if w < 1. || h < 1. {
             return;

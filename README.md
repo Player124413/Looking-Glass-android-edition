@@ -91,9 +91,11 @@ complete visual, audio or original-game fidelity. See the
 [campaign audit](docs/CAMPAIGN_RUN_AUDIT.md) and
 [known issues](docs/KNOWN_ISSUES.md) for exact coverage and remaining work.
 
-The current development build supports Windows x64, the English 2011 vanilla
-data set, persistent campaign saves, keyboard/mouse and configurable controller
-input. Other data editions and platforms have not been certified.
+The current development build supports Windows x64 and Android (ARM64 / x86_64),
+the English 2011 vanilla data set, persistent campaign saves, keyboard/mouse,
+configurable controller input and multi-touch controls. See
+[Android setup and touch controls](docs/ANDROID.md) for Android installation
+and mobile performance profiles.
 
 Expect remaining differences in cutscene staging, effects, materials and enemy
 behavior, plus a reported waterside rope-grab issue. Broader PC and audible
@@ -166,7 +168,7 @@ and bug-report requirements. Development shortcuts are under
 
 ## Documentation
 
-- [Installation](docs/INSTALL.md) and [controls](docs/CONTROLS.md)
+- [Installation](docs/INSTALL.md), [Android setup & touch controls](docs/ANDROID.md) and [controls](docs/CONTROLS.md)
 - [Campaign route audit](docs/CAMPAIGN_RUN_AUDIT.md) and [known issues](docs/KNOWN_ISSUES.md)
 - [Validation](docs/VALIDATION.md) and [save behavior](docs/SAVES.md)
 - [Release preparation](docs/RELEASE_PLAN.md)

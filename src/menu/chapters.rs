@@ -59,7 +59,7 @@ impl Menu {
                 focused,
                 input.using_pad,
             );
-            if focused {
+            if focused && !input.using_touch {
                 self.ui.cursor();
             }
             next_frame().await;
