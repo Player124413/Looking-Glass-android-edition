@@ -225,6 +225,48 @@ def find_libcplusplus_shared(ndk_root: pathlib.Path | None, target: str) -> path
     return pathlib.Path(matches[-1]) if matches else None
 
 
+def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) -> dict[str, str]:
+    env = dict(os.environ)
+    if ndk_root is None:
+        return env
+    env["ANDROID_NDK_HOME"] = str(ndk_root)
+    env["ANDROID_NDK_ROOT"] = str(ndk_root)
+    env["ANDROID_NDK"] = str(ndk_root)
+    env["NDK_HOME"] = str(ndk_root)
+
+    bin_dirs = sorted(glob.glob(str(ndk_root / "toolchains" / "llvm" / "prebuilt" / "*" / "bin")))
+    if not bin_dirs:
+        return env
+    bin_dir = pathlib.Path(bin_dirs[-1])
+    ndk_triple = {
+        "aarch64-linux-android": "aarch64-linux-android",
+        "x86_64-linux-android": "x86_64-linux-android",
+    }.get(target, target)
+    cmd_ext = ".cmd" if os.name == "nt" else ""
+    exe_ext = ".exe" if os.name == "nt" else ""
+    clang = bin_dir / f"{ndk_triple}{min_sdk}-clang{cmd_ext}"
+    clangxx = bin_dir / f"{ndk_triple}{min_sdk}-clang++{cmd_ext}"
+    llvm_ar = bin_dir / f"llvm-ar{exe_ext}"
+    target_under = target.replace("-", "_")
+    target_upper = target_under.upper()
+    if clang.exists():
+        env[f"CC_{target_under}"] = str(clang)
+        env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(clang)
+    if clangxx.exists():
+        env[f"CXX_{target_under}"] = str(clangxx)
+    if llvm_ar.exists():
+        env[f"AR_{target_under}"] = str(llvm_ar)
+
+    libgcc_dir = ROOT / "target" / "android-libgcc"
+    libgcc_dir.mkdir(parents=True, exist_ok=True)
+    (libgcc_dir / "libgcc.a").write_text("INPUT(-lunwind)\n", encoding="utf-8")
+    rustflags_key = f"CARGO_TARGET_{target_upper}_RUSTFLAGS"
+    existing_flags = env.get(rustflags_key, "")
+    link_flag = f"-Clink-arg=-L{libgcc_dir}"
+    env[rustflags_key] = f"{existing_flags} {link_flag}".strip()
+    return env
+
+
 def build_native_libraries(
     targets: list[str], release: bool
 ) -> tuple[dict[str, pathlib.Path], dict[str, list[pathlib.Path]]]:
@@ -232,6 +274,8 @@ def build_native_libraries(
         "aarch64-linux-android": "arm64-v8a",
         "x86_64-linux-android": "x86_64",
     }
+    meta = load_android_metadata()
+    min_sdk = int(meta["min_sdk_version"])
     built: dict[str, pathlib.Path] = {}
     extra: dict[str, list[pathlib.Path]] = {}
     profile = "release" if release else "debug"
@@ -242,15 +286,16 @@ def build_native_libraries(
         if target not in abi_map:
             raise SystemExit(f"Unsupported Android target: {target}")
         abi = abi_map[target]
+        env = configure_ndk_env(ndk_root, target, min_sdk)
         cmd = ["cargo"]
         if has_cargo_ndk:
-            cmd.extend(["ndk", "-t", abi, "rustc", "--locked"])
+            cmd.extend(["ndk", "-t", abi, "--platform", str(min_sdk), "rustc", "--locked"])
         else:
             cmd.extend(["rustc", "--locked", "--target", target])
         if release:
             cmd.append("--release")
         cmd.extend(["--", "--crate-type=cdylib"])
-        subprocess.run(cmd, cwd=ROOT, check=True)
+        subprocess.run(cmd, cwd=ROOT, env=env, check=True)
 
         so_path = ROOT / "target" / target / profile / "liblooking_glass.so"
         if not so_path.exists():

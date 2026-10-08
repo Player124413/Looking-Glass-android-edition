@@ -2,8 +2,6 @@ name: Android Build
 
 on:
   push:
-    branches: ["main", "arena/**"]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -19,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Audit source tree
-        run: python3 tools/check_source.py
+        run: python3 tools/check_source.py --worktree
 
       - name: Run packaging & Android setup tests
         run: python3 -m unittest discover -s tools -p "test_*.py" -v
@@ -35,9 +33,6 @@ jobs:
         with:
           toolchain: "1.86.0"
           targets: aarch64-linux-android
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --version 3.5.4 --locked
 
       - name: Build signed Android APK & native bundle
         run: python3 tools/package_android.py --target aarch64-linux-android --require-apk

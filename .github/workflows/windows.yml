@@ -25,6 +25,46 @@ jobs:
           python -m unittest discover -s tools -p test_setup.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s tools -p test_windows_setup.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tools -p test_android_setup.py
           exit $LASTEXITCODE
       - name: Rust unit tests (no game data)
         run: cargo test --locked
+
+  android-apk:
+    name: Build Android APK (ARM64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Audit public source
+        run: python3 tools/check_source.py --worktree
+
+      - name: Run Android setup & packaging tests
+        run: python3 -m unittest discover -s tools -p "test_*.py" -v
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Rust 1.86 with Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.86.0'
+          targets: aarch64-linux-android
+
+      - name: Build signed Android APK & native bundle
+        run: python3 tools/package_android.py --target aarch64-linux-android --require-apk
+
+      - name: Upload Android APK & bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LookingGlass-android-arm64
+          path: |
+            target/android-dist/LookingGlass-*-android.apk
+            target/android-dist/LookingGlass-*-android-bundle.zip
+            target/android-dist/SHA256SUMS.txt
+          if-no-files-found: error
