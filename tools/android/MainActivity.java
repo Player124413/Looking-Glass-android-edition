@@ -49,13 +49,13 @@ class QuadSurface extends SurfaceView
         implements View.OnTouchListener, View.OnKeyListener, SurfaceHolder.Callback {
 
     private boolean hasActiveSurface = false;
-    private int surfaceWidth = 1280;
-    private int surfaceHeight = 648;
+    private int surfaceWidth = 1194;
+    private int surfaceHeight = 540;
 
     private static int[] computeRenderSize(int rawWidth, int rawHeight) {
-        final int targetShortSide = 648;
+        final int targetShortSide = 540;
         if (rawWidth <= 0 || rawHeight <= 0) {
-            return new int[] {1280, 648};
+            return new int[] {1194, 540};
         }
         int shortSide = Math.min(rawWidth, rawHeight);
         if (shortSide <= targetShortSide) {

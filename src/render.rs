@@ -29,6 +29,7 @@ mod camera_portal;
 pub use billboard_check::check as check_billboards;
 
 pub(crate) const BLEND_COUNT: usize = 109;
+pub(crate) const SOLID_OPAQUE_MATERIAL: usize = BLEND_COUNT * 2;
 
 const VERTEX: &str = r#"#version 100
 attribute vec3 position; attribute vec2 texcoord; attribute vec4 color0; attribute vec4 normal;
@@ -180,29 +181,36 @@ fn outside_bounds(min: Vec3, max: Vec3) -> bool {
     .map(|p| m * p.extend(1.));
     (0..3).any(|a| points.iter().all(|p| p[a] < -p.w) || points.iter().all(|p| p[a] > p.w))
 }
+thread_local! {
+    static MAPPING_SCRATCH: RefCell<Vec<u16>> = const { RefCell::new(Vec::new()) };
+}
 fn selected_mesh(mesh: &Mesh, compact: bool) -> Mesh {
     if !compact {
         return crate::render_fx::copy_mesh(mesh);
     }
-    let mut mapping = vec![u16::MAX; mesh.vertices.len()];
-    let mut vertices = Vec::new();
-    let indices = mesh
-        .indices
-        .iter()
-        .map(|&i| {
-            let next = &mut mapping[i as usize];
-            if *next == u16::MAX {
-                *next = vertices.len() as u16;
-                vertices.push(mesh.vertices[i as usize]);
-            }
-            *next
-        })
-        .collect();
-    Mesh {
-        vertices,
-        indices,
-        texture: mesh.texture.clone(),
-    }
+    MAPPING_SCRATCH.with(|scratch| {
+        let mut mapping = scratch.borrow_mut();
+        mapping.clear();
+        mapping.resize(mesh.vertices.len(), u16::MAX);
+        let mut vertices = Vec::with_capacity(mesh.indices.len().min(mesh.vertices.len()));
+        let indices = mesh
+            .indices
+            .iter()
+            .map(|&i| {
+                let next = &mut mapping[i as usize];
+                if *next == u16::MAX {
+                    *next = vertices.len() as u16;
+                    vertices.push(mesh.vertices[i as usize]);
+                }
+                *next
+            })
+            .collect();
+        Mesh {
+            vertices,
+            indices,
+            texture: mesh.texture.clone(),
+        }
+    })
 }
 fn upload(image: texture::RgbaImage) -> Texture2D {
     let t = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
@@ -302,7 +310,16 @@ pub(crate) fn world_material(index: usize) -> Result<Rc<Material>> {
         if let Some(material) = cache.borrow().get(&index).and_then(Weak::upgrade) {
             return Ok(material);
         }
-        let fragment = crate::lighting::fragment(&crate::environment::fragment(FRAGMENT));
+        let base_fragment = if index == SOLID_OPAQUE_MATERIAL {
+            FRAGMENT
+                .lines()
+                .filter(|line| !line.contains("discard;"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            FRAGMENT.to_owned()
+        };
+        let fragment = crate::lighting::fragment(&crate::environment::fragment(&base_fragment));
         let mut uniforms = vec![
             UniformDesc::new("AtlasGrid", UniformType::Float2),
             UniformDesc::new("Fullbright", UniformType::Float1),
@@ -327,12 +344,16 @@ pub(crate) fn world_material(index: usize) -> Result<Rc<Material>> {
                 },
                 MaterialParams {
                     pipeline_params: PipelineParams {
-                        depth_test: if index >= BLEND_COUNT {
+                        depth_test: if index >= BLEND_COUNT && index < SOLID_OPAQUE_MATERIAL {
                             Comparison::Equal
                         } else {
                             Comparison::LessOrEqual
                         },
-                        ..depth_pipeline(blend(index % BLEND_COUNT))
+                        ..depth_pipeline(if index == SOLID_OPAQUE_MATERIAL {
+                            None
+                        } else {
+                            blend(index % BLEND_COUNT)
+                        })
                     },
                     uniforms,
                     textures: vec!["LightAtlas".into(), "SkyBackdrop".into()],
@@ -414,13 +435,22 @@ fn load_layers(
             textures.push(tex);
         }
         let lit = index == 0 && !spec.is_some_and(|s| s.unlit) && (lightmapped || !stage.identity);
-        layers.push(Layer {
-            material: blend_index(stage.blend)
+        let material = if crate::android::is_android()
+            && stage.blend == Blend::Opaque
+            && !(stage.depth_equal && index > 0)
+            && stage.alpha_test == 0
+        {
+            SOLID_OPAQUE_MATERIAL
+        } else {
+            blend_index(stage.blend)
                 + if stage.depth_equal && index > 0 {
                     BLEND_COUNT
                 } else {
                     0
-                },
+                }
+        };
+        layers.push(Layer {
+            material,
             spec: stage,
             textures,
             lit,
@@ -663,11 +693,23 @@ fn draw_batch(
             && layer.spec.mods.is_empty();
         if static_uv && !needs_eye_dir {
             let fixed_alpha = (!layer.spec.vertex_alpha).then_some(255u8);
-            for (v, base) in batch.mesh.vertices.iter_mut().zip(&batch.base) {
-                v.uv = base.uv;
-                v.color = base.color;
-                if let Some(a) = fixed_alpha {
-                    v.color[3] = a;
+            let needs_uv_color_restore = batch.layers.len() > 1
+                || batch.deforms.iter().any(|d| matches!(d, crate::materials::Deform::Sprite(_)))
+                || batch
+                    .mesh
+                    .vertices
+                    .first()
+                    .zip(batch.base.first())
+                    .is_some_and(|(v, b)| {
+                        v.uv != b.uv || v.color[3] != fixed_alpha.unwrap_or(b.color[3])
+                    });
+            if needs_uv_color_restore {
+                for (v, base) in batch.mesh.vertices.iter_mut().zip(&batch.base) {
+                    v.uv = base.uv;
+                    v.color = base.color;
+                    if let Some(a) = fixed_alpha {
+                        v.color[3] = a;
+                    }
                 }
             }
         } else {
@@ -772,7 +814,11 @@ fn draw_batch(
             },
         );
         gl_use_material(material);
-        if batch.mesh.indices.len() < batch.full_indices.len() {
+        if batch.mesh.indices.len() < batch.full_indices.len()
+            && (!crate::android::is_android()
+                || (batch.mesh.vertices.len() > 256
+                    && batch.mesh.indices.len() * 2 < batch.mesh.vertices.len()))
+        {
             draw_mesh(&selected_mesh(&batch.mesh, true));
         } else {
             draw_mesh(&batch.mesh);
@@ -1466,9 +1512,30 @@ impl Scene {
                     |(a, b), p| (a.min(p), b.max(p)),
                 );
             }
+            if batch.layers.len() == 1 && !batch.layers[0].spec.vertex_alpha {
+                for v in &mut batch.mesh.vertices {
+                    v.color[3] = 255;
+                }
+            }
             batch.base = batch.mesh.vertices.clone();
             batch.center =
                 batch.base.iter().map(|v| v.position).sum::<Vec3>() / batch.base.len() as f32;
+        }
+        if crate::android::is_android() && decoration_start < batches.len() {
+            batches[decoration_start..].sort_by_key(|b| {
+                let first = b.layers.first();
+                (
+                    b.transparent(),
+                    first.map_or(usize::MAX, |l| l.material),
+                    first.map_or(0, |l| l.spec.alpha_test),
+                    first.map_or(false, |l| l.spec.clamp),
+                    first.map_or(false, |l| l.lit),
+                    first
+                        .and_then(|l| l.spec.images.first())
+                        .cloned()
+                        .unwrap_or_default(),
+                )
+            });
         }
         missing.sort();
         missing.dedup();
@@ -1510,6 +1577,9 @@ impl Scene {
                     materials[i % BLEND_COUNT].clone()
                 },
             );
+        }
+        if crate::android::is_android() {
+            materials.push(world_material(SOLID_OPAQUE_MATERIAL)?);
         }
         let mut bound_materials = Vec::new();
         for material in &materials {

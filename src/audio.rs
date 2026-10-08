@@ -434,6 +434,24 @@ fn decode_clip(data: Vec<u8>) -> Result<Clip> {
         .chunks_exact(channels)
         .map(|s| s.iter().sum::<f32>() / channels as f32)
         .collect::<Vec<_>>();
+    let (mono, rate) = if crate::android::is_android() && rate != 44100 && mono.len() >= 2 {
+        let out_len = ((mono.len() as u64 * 44100) / rate as u64).max(1) as usize;
+        let ratio = rate as f32 / 44100.0;
+        let last = mono.len() - 1;
+        let resampled = (0..out_len)
+            .map(|i| {
+                let pos = i as f32 * ratio;
+                let idx = (pos as usize).min(last);
+                let frac = pos - idx as f32;
+                let a = mono[idx];
+                let b = mono[(idx + 1).min(last)];
+                a + (b - a) * frac
+            })
+            .collect::<Vec<_>>();
+        (resampled, 44100)
+    } else {
+        (mono, rate)
+    };
     Ok(Clip {
         samples: mono.into(),
         rate,
@@ -594,6 +612,7 @@ struct Emitter {
     clip: Clip,
     pan: Arc<Pan>,
     sink: Sink,
+    attached: bool,
     remaining: f32,
     acoustics: Arc<acoustics::Controls>,
     obstruction: f32,
@@ -781,9 +800,14 @@ impl Audio {
             if cache.contains_key(path) {
                 continue;
             }
+            let sample_limit = if crate::android::is_android() {
+                48_000_000
+            } else {
+                32_000_000
+            };
             let result = assets.read(path).and_then(decode_clip).and_then(|clip| {
                 ensure!(
-                    cache_samples + clip.samples.len() <= 32_000_000,
+                    cache_samples + clip.samples.len() <= sample_limit,
                     "Level audio cache limit reached"
                 );
                 cache_samples += clip.samples.len();
@@ -805,23 +829,29 @@ impl Audio {
             .iter()
             .filter_map(|(path, clip)| clip.clone().map(|c| (path.clone(), c)))
             .collect();
+        let android = crate::android::is_android();
         for speaker in spec.speakers {
             if let Some(clip) = cache.get(&speaker.path).and_then(Clone::clone) {
-                let sink = playback.sink();
-                sink.set_volume(0.);
                 let pan = Pan::new();
                 let acoustics = acoustics::Controls::new();
-                if !speaker.random {
-                    sink.append(acoustics::Filter::new(
-                        Pcm {
-                            clip: clip.clone(),
-                            index: 0,
-                            looping: true,
-                            pan: pan.clone(),
-                        },
-                        acoustics.clone(),
-                    ));
-                }
+                let (sink, attached) = if android {
+                    (Sink::new_idle().0, false)
+                } else {
+                    let sink = playback.sink();
+                    sink.set_volume(0.);
+                    if !speaker.random {
+                        sink.append(acoustics::Filter::new(
+                            Pcm {
+                                clip: clip.clone(),
+                                index: 0,
+                                looping: true,
+                                pan: pan.clone(),
+                            },
+                            acoustics.clone(),
+                        ));
+                    }
+                    (sink, true)
+                };
                 let remaining =
                     speaker.delay.0 + random(&mut self.rng) * (speaker.delay.1 - speaker.delay.0);
                 self.emitters.push(Emitter {
@@ -829,6 +859,7 @@ impl Audio {
                     clip,
                     pan,
                     sink,
+                    attached,
                     remaining,
                     acoustics,
                     obstruction: 0.,
@@ -910,19 +941,47 @@ impl Audio {
         let android = crate::android::is_android();
         for e in &mut self.emitters {
             let (left, right, attenuation) = spatial(e.spec.origin - listener, yaw, e.spec.radius);
-            e.pan.set(left, right);
-            e.sink.set_volume(
-                master
-                    * self.settings.effects
-                    * e.spec.volume
-                    * attenuation
-                    * (1. - 0.7 * e.obstruction)
-                    * 0.5,
-            );
-            set_paused(
-                &e.sink,
-                paused || (android && !e.spec.random && attenuation <= 0.0001),
-            );
+            if android {
+                if !e.spec.random {
+                    if attenuation > 0.0001 && !e.attached {
+                        if let Some(playback) = &self.playback {
+                            let sink = playback.sink();
+                            sink.set_volume(0.);
+                            sink.append(acoustics::Filter::new(
+                                Pcm {
+                                    clip: e.clip.clone(),
+                                    index: 0,
+                                    looping: true,
+                                    pan: e.pan.clone(),
+                                },
+                                e.acoustics.clone(),
+                            ));
+                            e.sink = sink;
+                            e.attached = true;
+                        }
+                    } else if attenuation <= 0.0001 && e.attached {
+                        e.sink.stop();
+                        e.sink = Sink::new_idle().0;
+                        e.attached = false;
+                    }
+                } else if e.attached && e.sink.empty() {
+                    e.sink.stop();
+                    e.sink = Sink::new_idle().0;
+                    e.attached = false;
+                }
+            }
+            if e.attached {
+                e.pan.set(left, right);
+                e.sink.set_volume(
+                    master
+                        * self.settings.effects
+                        * e.spec.volume
+                        * attenuation
+                        * (1. - 0.7 * e.obstruction)
+                        * 0.5,
+                );
+                set_paused(&e.sink, paused);
+            }
             if e.spec.random && !paused {
                 // RandomSpeaker schedules server events. Existing PCM, music,
                 // speech and loops keep playing; the next emission waits.
@@ -931,18 +990,36 @@ impl Audio {
                     e.remaining =
                         e.spec.delay.0 + random(&mut self.rng) * (e.spec.delay.1 - e.spec.delay.0);
                     if random(&mut self.rng) < e.spec.chance
-                        && e.sink.empty()
+                        && (!e.attached || e.sink.empty())
                         && attenuation > 0.001
                     {
-                        e.sink.append(acoustics::Filter::new(
-                            Pcm {
-                                clip: e.clip.clone(),
-                                index: 0,
-                                looping: false,
-                                pan: e.pan.clone(),
-                            },
-                            e.acoustics.clone(),
-                        ));
+                        if android && !e.attached {
+                            if let Some(playback) = &self.playback {
+                                let sink = playback.sink();
+                                sink.set_volume(
+                                    master
+                                        * self.settings.effects
+                                        * e.spec.volume
+                                        * attenuation
+                                        * (1. - 0.7 * e.obstruction)
+                                        * 0.5,
+                                );
+                                e.pan.set(left, right);
+                                e.sink = sink;
+                                e.attached = true;
+                            }
+                        }
+                        if e.attached {
+                            e.sink.append(acoustics::Filter::new(
+                                Pcm {
+                                    clip: e.clip.clone(),
+                                    index: 0,
+                                    looping: false,
+                                    pan: e.pan.clone(),
+                                },
+                                e.acoustics.clone(),
+                            ));
+                        }
                     }
                 }
             }
@@ -1072,13 +1149,18 @@ impl Audio {
             return;
         }
         self.submerged = submerged;
+        let sample_limit = if crate::android::is_android() {
+            48_000_000
+        } else {
+            32_000_000
+        };
         for request in std::mem::take(&mut self.pending) {
             if !self.world_clips.contains_key(&request.path)
                 && !self.missing.contains(&request.path)
             {
                 match assets.read(&request.path).and_then(decode_clip) {
                     Ok(clip) => {
-                        if self.cache_samples + clip.samples.len() > 32_000_000 {
+                        if self.cache_samples + clip.samples.len() > sample_limit {
                             self.resolved += u64::from(self.play_clip(clip, &request));
                             continue;
                         }
@@ -1097,12 +1179,19 @@ impl Audio {
                 self.resolved += u64::from(self.play_clip(clip, &request));
             }
         }
+        let android = crate::android::is_android();
         self.acoustic_clock -= dt;
-        if self.acoustic_clock <= 0. {
-            self.acoustic_clock = 0.1;
+        let acoustic_tick = self.acoustic_clock <= 0.;
+        if acoustic_tick {
+            self.acoustic_clock = if android { 0.25 } else { 0.1 };
             self.room = acoustics::room(world, listener);
+            let max_mult = if android { 3. } else { 4. };
             for e in &mut self.emitters {
-                let target = if e.spec.origin.distance(listener) < e.spec.radius * 4. {
+                if android && !e.attached {
+                    continue;
+                }
+                let max_dist = e.spec.radius * max_mult;
+                let target = if e.spec.origin.distance_squared(listener) < max_dist * max_dist {
                     acoustics::obstruction(world, listener, e.spec.origin)
                 } else {
                     0.
@@ -1111,7 +1200,9 @@ impl Audio {
             }
         }
         for e in &self.emitters {
-            e.acoustics.set(e.obstruction, submerged, self.room);
+            if !android || e.attached {
+                e.acoustics.set(e.obstruction, submerged, self.room);
+            }
         }
         for e in self
             .effects
@@ -1119,14 +1210,21 @@ impl Audio {
             .chain(self.reaction.iter_mut())
             .chain(self.loops.values_mut().map(|l| &mut l.effect))
         {
-            let target = e.origin.map_or(0., |p| {
-                if p.distance_squared(listener) < (384. * 4.) * (384. * 4.) {
-                    acoustics::obstruction(world, listener, p)
+            if !android || acoustic_tick {
+                let target = e.origin.map_or(0., |p| {
+                    if p.distance_squared(listener) < (384. * 4.) * (384. * 4.) {
+                        acoustics::obstruction(world, listener, p)
+                    } else {
+                        0.
+                    }
+                });
+                let blend = if android {
+                    0.6
                 } else {
-                    0.
-                }
-            });
-            e.obstruction += (target - e.obstruction) * (1. - (-dt * 12.).exp());
+                    1. - (-dt * 12.).exp()
+                };
+                e.obstruction += (target - e.obstruction) * blend;
+            }
             e.acoustics.set(e.obstruction, submerged, self.room);
         }
     }
@@ -1181,11 +1279,18 @@ impl Audio {
                 l.effect.origin = Some(cue.origin);
                 continue;
             }
-            let clip = if let Some(clip) = self.world_clips.get(cue.path) {
-                Some(clip.clone())
-            } else {
-                assets.read(cue.path).and_then(decode_clip).ok()
-            };
+            if !self.world_clips.contains_key(cue.path) && !self.missing.contains(cue.path) {
+                match assets.read(cue.path).and_then(decode_clip) {
+                    Ok(clip) => {
+                        self.cache_samples += clip.samples.len();
+                        self.world_clips.insert(cue.path.into(), clip);
+                    }
+                    Err(_) => {
+                        self.missing.insert(cue.path.into());
+                    }
+                }
+            }
+            let clip = self.world_clips.get(cue.path).cloned();
             if let Some(clip) = clip {
                 let index = cue
                     .clock
@@ -1252,10 +1357,17 @@ impl Audio {
         if swimming && sanity > 0. {
             if self.swim_bed.is_none() {
                 if let Some(playback) = &self.playback {
-                    if let Ok(clip) = assets
-                        .read("sound/character/alice/swimloop.wav")
-                        .and_then(decode_clip)
-                    {
+                    let clip = self
+                        .world_clips
+                        .get("sound/character/alice/swimloop.wav")
+                        .cloned()
+                        .or_else(|| {
+                            assets
+                                .read("sound/character/alice/swimloop.wav")
+                                .and_then(decode_clip)
+                                .ok()
+                        });
+                    if let Some(clip) = clip {
                         let sink = playback.sink();
                         sink.set_volume(0.);
                         sink.append(Pcm {
@@ -1827,6 +1939,7 @@ mod tests {
             },
             pan: Pan::new(),
             sink,
+            attached: true,
             remaining: 0.1,
             acoustics: acoustics::Controls::new(),
             obstruction: 0.,

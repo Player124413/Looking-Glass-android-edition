@@ -20,15 +20,26 @@ thread_local! {
 }
 pub fn select(mut lights: Vec<Light>, eye: Vec3, world: &World) {
     let max_lights = crate::android::active_preset().max_dynamic_lights().min(8);
+    if max_lights == 0 {
+        LIGHTS.with(|v| v.borrow_mut().clear());
+        return;
+    }
     lights.retain(|l| {
         l.position.is_finite() && l.color.is_finite() && l.radius > 0. && l.radius <= 8192.
     });
     lights.sort_by(|a, b| score(*b, eye).total_cmp(&score(*a, eye)));
     lights.truncate(max_lights * 4);
     // A bounded visibility query rejects lights fully hidden from this room.
-    lights.retain(|l| world.sweep(eye, l.position, Vec3::ZERO).fraction >= 0.995);
-    lights.truncate(max_lights);
-    LIGHTS.with(|v| *v.borrow_mut() = lights);
+    let mut visible = Vec::with_capacity(max_lights);
+    for l in lights {
+        if world.sweep(eye, l.position, Vec3::ZERO).fraction >= 0.995 {
+            visible.push(l);
+            if visible.len() >= max_lights {
+                break;
+            }
+        }
+    }
+    LIGHTS.with(|v| *v.borrow_mut() = visible);
 }
 fn score(light: Light, eye: Vec3) -> f32 {
     light.radius / (light.position.distance(eye) + light.radius)
@@ -72,9 +83,10 @@ pub fn fragment(source: &str) -> String {
     source.replace("// LIGHTS", &s)
 }
 pub fn apply(material: &Material, model: bool, enabled: bool) {
+    let count = if crate::android::is_android() { 4 } else { 8 };
     LIGHTS.with(|lights| {
         let lights = lights.borrow();
-        for i in 0..8 {
+        for i in 0..count {
             let light = lights
                 .get(i)
                 .filter(|l| enabled && (model || !l.only_models));
@@ -145,7 +157,7 @@ pub fn shadow(world: &World, feet: Vec3, radius: f32) {
     let segments: u16 = if fast { 12 } else { 24 };
     let mut vertices = Vec::with_capacity(segments as usize + 2);
     let mut indices = Vec::with_capacity(segments as usize * 3);
-    for (idx, (position, uv)) in [(center, Vec2::splat(0.5))]
+    for (_idx, (position, uv)) in [(center, Vec2::splat(0.5))]
         .into_iter()
         .chain((0..=segments).map(|i| {
             let a = i as f32 * std::f32::consts::TAU / segments as f32;
@@ -157,7 +169,7 @@ pub fn shadow(world: &World, feet: Vec3, radius: f32) {
         .enumerate()
     {
         // Clip each rim point against nearby support; shadows never bridge a pit.
-        let supported = if fast && idx > 0 && idx % 3 != 1 {
+        let supported = if fast {
             true
         } else {
             world

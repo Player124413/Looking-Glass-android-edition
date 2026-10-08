@@ -820,6 +820,7 @@ impl Steam {
             return;
         }
         let dt = dt.min(0.05);
+        let android = crate::android::is_android();
         for p in &mut self.puffs {
             let dt = if self.emitters[p.emitter].spec.no_deadtime {
                 dt
@@ -843,39 +844,49 @@ impl Steam {
             }
             // The enclosed pixie requests axis bounds, not world collision.
             // Its casing still occludes the sprite through the depth buffer.
-            if self.emitters[p.emitter].spec.constrain.is_none()
+            if !android
+                && self.emitters[p.emitter].spec.constrain.is_none()
                 && world.sweep(p.position, next, Vec3::ZERO).fraction < 1.
             {
                 p.age = p.life;
             }
-            if self.emitters[p.emitter].spec.image == "bubble" && world.liquid_at(next) == 0 {
+            if !android
+                && self.emitters[p.emitter].spec.image == "bubble"
+                && world.liquid_at(next) == 0
+            {
                 p.age = p.life;
             }
             p.position = next;
         }
         self.puffs.retain(|p| p.age < p.life);
         let cull_dist_sq = crate::android::active_preset().particle_cull_distance_sq();
+        let max_puffs = if android { 192 } else { 4096 };
         for (index, e) in self.emitters.iter_mut().enumerate() {
             let dt = if e.spec.no_deadtime {
                 dt
             } else {
                 world_dt.min(dt)
             };
+            let rate = if android && e.spec.constrain.is_none() {
+                (e.spec.rate * 0.35).max(e.spec.rate.min(1.))
+            } else {
+                e.spec.rate
+            };
             if !e.enabled
-                || e.spec.rate <= 0.
+                || rate <= 0.
                 || (e.spec.image.is_empty() && e.spec.light.is_some())
                 || e.origin.distance_squared(eye) > cull_dist_sq
             {
                 // Keep the enclosed light ready when its lantern comes into range.
                 e.carry = if e.enabled && e.spec.constrain.is_some() {
-                    (e.carry + dt * e.spec.rate).min(1.)
+                    (e.carry + dt * rate).min(1.)
                 } else { 0. };
                 continue;
             }
-            e.carry = (e.carry + dt * e.spec.rate).min(32.);
+            e.carry = (e.carry + dt * rate).min(if android { 4. } else { 32. });
             while e.carry >= 1. {
                 e.carry -= 1.;
-                if self.puffs.len() >= 4096 {
+                if self.puffs.len() >= max_puffs {
                     break;
                 }
                 let offset = sampled(e.spec.offset, &mut self.seed)
@@ -1332,27 +1343,35 @@ impl Attached {
             previous.clear();
         }
         self.age = age;
+        let android = crate::android::is_android();
+        let max_lookback = if android { 32 } else { 1024 };
+        let max_puffs = if android { 48 } else { 4096 };
         for (index, e) in self.steam.emitters.iter().enumerate() {
             if e.spec.burst.is_some_and(|(at, _)| age < at) {
                 continue;
             }
+            let rate = if android && e.spec.burst.is_none() {
+                (e.spec.rate * 0.4).max(e.spec.rate.min(1.))
+            } else {
+                e.spec.rate
+            };
             let last = e.spec.burst.map_or_else(
-                || (age * e.spec.rate).floor() as u32,
+                || (age * rate).floor() as u32,
                 |(_, n)| n.saturating_sub(1),
             );
             let first = if e.spec.burst.is_some() {
                 0
             } else {
-                ((age - e.spec.life.high).max(0.) * e.spec.rate).ceil() as u32
+                ((age - e.spec.life.high).max(0.) * rate).ceil() as u32
             };
-            for birth in first.max(last.saturating_sub(1024))..=last {
-                if self.steam.puffs.len() >= 4096 {
+            for birth in first.max(last.saturating_sub(max_lookback))..=last {
+                if self.steam.puffs.len() >= max_puffs {
                     return;
                 }
                 let at = e
                     .spec
                     .burst
-                    .map_or(birth as f32 / e.spec.rate, |(at, _)| at);
+                    .map_or(birth as f32 / rate, |(at, _)| at);
                 if !enabled(&e.spec.name, at, !e.spec.start_off) {
                     continue;
                 }

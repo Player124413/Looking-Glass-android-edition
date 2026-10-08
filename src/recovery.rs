@@ -82,7 +82,15 @@ impl Recovery {
         yaw: f32,
     ) {
         if player.grounded && !player.climbing() && !player.swimming {
-            if supported(world, player.feet) && !interactions.hazardous(player.feet) {
+            if crate::android::is_android()
+                && self
+                    .last_ground
+                    .is_some_and(|g| g.feet.distance_squared(player.feet) < 16. * 16.)
+            {
+                if let Some(g) = &mut self.last_ground {
+                    g.yaw = yaw;
+                }
+            } else if supported(world, player.feet) && !interactions.hazardous(player.feet) {
                 self.last_ground = Some(Footing {
                     feet: player.feet,
                     yaw,

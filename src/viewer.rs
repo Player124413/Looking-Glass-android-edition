@@ -2969,23 +2969,25 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                     .map(|r| (r.model, player.feet + Vec3::Z * 40.))
             });
         scene.update_ropes(world_dt, rope_hand, &transforms);
-        steam.animate(environment_clock);
-        steam.sync(&interactions.event_world);
         steam.collected(&pickups, &stats);
-        if interactions
-            .school
-            .as_ref()
-            .is_some_and(|s| s.theatre_finished())
-        {
-            steam.stop();
+        if paused || menu || inventory_menu || console_input || !focused || !stats.alive() {
+            steam.animate(environment_clock);
+            steam.sync(&interactions.event_world);
+            if interactions
+                .school
+                .as_ref()
+                .is_some_and(|s| s.theatre_finished())
+            {
+                steam.stop();
+            }
+            if let Some(v) = &interactions.village {
+                v.place_particles(&mut steam);
+            }
+            if let Some(p) = &interactions.pandemonium {
+                p.gate_particles(&mut steam);
+            }
+            interactions.place_level_particles(&mut steam);
         }
-        if let Some(v) = &interactions.village {
-            v.place_particles(&mut steam);
-        }
-        if let Some(p) = &interactions.pandemonium {
-            p.gate_particles(&mut steam);
-        }
-        interactions.place_level_particles(&mut steam);
         let mut lights = steam.lights();
         lights.extend(alice.lights());
         lights.extend(npcs.lights());
