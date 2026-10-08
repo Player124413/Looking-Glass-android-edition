@@ -191,6 +191,7 @@ fn run() -> Result<()> {
     };
     if android::is_android() {
         macroquad::Window::from_config(viewer::config(), async move {
+            android::install_panic_hook();
             let assets = match Assets::open(&o.data) {
                 Ok(assets) => assets,
                 Err(_) => match android::wait_for_data(o.data.clone()).await {
@@ -205,6 +206,7 @@ fn run() -> Result<()> {
                 eprintln!("Viewer failed: {e:#}");
             }
         });
+        android::install_panic_hook();
         return Ok(());
     }
     let mut args = std::env::args().skip(1);

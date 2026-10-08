@@ -31,6 +31,90 @@ pub fn init_runtime() {
                 }
             }
         });
+        install_panic_hook();
+    }
+}
+
+/// Install an Android panic hook that logs to logcat, writes `crash.log`, and displays
+/// the error in `MainActivity` instead of silently terminating the background GL thread.
+pub fn install_panic_hook() {
+    #[cfg(target_os = "android")]
+    {
+        std::panic::set_hook(Box::new(|info| {
+            let thread = std::thread::current();
+            let thread_name = thread.name().unwrap_or("unnamed");
+            let msg = format!("Rust panic on thread '{thread_name}':\n{info}\n");
+            let crash_path = storage_root().join("crash.log");
+            let _ = fs::write(&crash_path, &msg);
+            if let Ok(c_msg) = std::ffi::CString::new(msg.replace('\0', " ")) {
+                unsafe {
+                    macroquad::miniquad::native::android::console_error(c_msg.as_ptr());
+                }
+            }
+            report_native_crash_to_java(&msg);
+            if thread_name != "main" {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                }
+            }
+        }));
+    }
+}
+
+#[cfg(target_os = "android")]
+fn report_native_crash_to_java(message: &str) {
+    unsafe {
+        use macroquad::miniquad::native::android::{attach_jni_env, ACTIVITY};
+        let env = attach_jni_env();
+        if env.is_null() || ACTIVITY.is_null() {
+            return;
+        }
+        let Some(get_object_class) = (**env).GetObjectClass else {
+            return;
+        };
+        let Some(get_method_id) = (**env).GetMethodID else {
+            return;
+        };
+        let Some(call_void_method) = (**env).CallVoidMethod else {
+            return;
+        };
+        let Some(new_string_utf) = (**env).NewStringUTF else {
+            return;
+        };
+        let sanitized = message.replace('\0', " ");
+        let Ok(c_msg) = std::ffi::CString::new(sanitized) else {
+            return;
+        };
+        let Ok(method) = std::ffi::CString::new("reportNativeCrash") else {
+            return;
+        };
+        let Ok(sig) = std::ffi::CString::new("(Ljava/lang/String;)V") else {
+            return;
+        };
+        let class = get_object_class(env, ACTIVITY);
+        if class.is_null() {
+            return;
+        }
+        let mid = get_method_id(env, class, method.as_ptr() as _, sig.as_ptr() as _);
+        if !mid.is_null() {
+            let jstr = new_string_utf(env, c_msg.as_ptr());
+            if !jstr.is_null() {
+                call_void_method(env, ACTIVITY, mid, jstr);
+                if let Some(del) = (**env).DeleteLocalRef {
+                    del(env, jstr);
+                }
+            }
+        }
+        if let Some(exc) = (**env).ExceptionCheck {
+            if exc(env) != 0 {
+                if let Some(clear) = (**env).ExceptionClear {
+                    clear(env);
+                }
+            }
+        }
+        if let Some(del) = (**env).DeleteLocalRef {
+            del(env, class);
+        }
     }
 }
 
@@ -349,10 +433,19 @@ fn call_activity_void(method_name: &str) -> bool {
             return false;
         }
         call_void_method(env, ACTIVITY, mid);
+        let mut ok = true;
+        if let Some(exc) = (**env).ExceptionCheck {
+            if exc(env) != 0 {
+                if let Some(clear) = (**env).ExceptionClear {
+                    clear(env);
+                }
+                ok = false;
+            }
+        }
         if let Some(del) = (**env).DeleteLocalRef {
             del(env, class);
         }
-        true
+        ok
     }
 }
 

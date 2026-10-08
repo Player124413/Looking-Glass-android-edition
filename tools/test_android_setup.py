@@ -139,6 +139,11 @@ class AndroidPortTest(unittest.TestCase):
         self.assertIn("input.set_touch_context(", viewer_rs)
         self.assertIn("input.touch_look(&preferences)", viewer_rs)
         self.assertIn("input.touch.draw(&ui, &preferences)", viewer_rs)
+        self.assertIn("sample_count: if android { 0 } else { 1 },", viewer_rs)
+
+        android_rs = (ROOT / "src" / "android.rs").read_text(encoding="utf-8")
+        self.assertIn("pub fn install_panic_hook()", android_rs)
+        self.assertIn("reportNativeCrash", android_rs)
 
         menu_rs = (ROOT / "src" / "menu.rs").read_text(encoding="utf-8")
         self.assertIn('"Touch Controls"', menu_rs)

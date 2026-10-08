@@ -8,7 +8,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
-import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -28,11 +27,16 @@ import android.view.WindowManager.LayoutParams;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +47,8 @@ import quad_native.QuadNative;
 
 class QuadSurface extends SurfaceView
         implements View.OnTouchListener, View.OnKeyListener, SurfaceHolder.Callback {
+
+    private boolean hasActiveSurface = false;
 
     public QuadSurface(Context context) {
         super(context);
@@ -57,80 +63,101 @@ class QuadSurface extends SurfaceView
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
         Log.i("SAPP", "surfaceCreated");
-        Surface surface = holder.getSurface();
-        QuadNative.surfaceOnSurfaceCreated(surface);
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         Log.i("SAPP", "surfaceDestroyed");
-        Surface surface = holder.getSurface();
-        QuadNative.surfaceOnSurfaceDestroyed(surface);
+        if (!hasActiveSurface) {
+            return;
+        }
+        hasActiveSurface = false;
+        try {
+            Surface surface = holder.getSurface();
+            QuadNative.surfaceOnSurfaceDestroyed(surface);
+        } catch (Throwable t) {
+            MainActivity.reportStaticFatalError("Exception in surfaceDestroyed", t);
+        }
     }
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        Log.i("SAPP", "surfaceChanged");
+        Log.i("SAPP", "surfaceChanged: " + width + "x" + height);
+        if (width <= 0 || height <= 0) {
+            return;
+        }
         Surface surface = holder.getSurface();
-        QuadNative.surfaceOnSurfaceChanged(surface, width, height);
+        if (surface == null || !surface.isValid()) {
+            return;
+        }
+        try {
+            hasActiveSurface = true;
+            QuadNative.surfaceOnSurfaceChanged(surface, width, height);
+        } catch (Throwable t) {
+            MainActivity.reportStaticFatalError("Exception in surfaceChanged", t);
+        }
     }
 
     @Override
     public boolean onTouch(View v, MotionEvent event) {
-        int pointerCount = event.getPointerCount();
-        int action = event.getActionMasked();
+        try {
+            int pointerCount = event.getPointerCount();
+            int action = event.getActionMasked();
 
-        switch (action) {
-            case MotionEvent.ACTION_MOVE: {
-                for (int i = 0; i < pointerCount; i++) {
-                    final int id = event.getPointerId(i);
-                    final float x = event.getX(i);
-                    final float y = event.getY(i);
-                    QuadNative.surfaceOnTouch(id, 0, x, y);
+            switch (action) {
+                case MotionEvent.ACTION_MOVE: {
+                    for (int i = 0; i < pointerCount; i++) {
+                        final int id = event.getPointerId(i);
+                        final float x = event.getX(i);
+                        final float y = event.getY(i);
+                        QuadNative.surfaceOnTouch(id, 0, x, y);
+                    }
+                    break;
                 }
-                break;
-            }
-            case MotionEvent.ACTION_UP: {
-                final int id = event.getPointerId(0);
-                final float x = event.getX(0);
-                final float y = event.getY(0);
-                QuadNative.surfaceOnTouch(id, 1, x, y);
-                break;
-            }
-            case MotionEvent.ACTION_DOWN: {
-                final int id = event.getPointerId(0);
-                final float x = event.getX(0);
-                final float y = event.getY(0);
-                QuadNative.surfaceOnTouch(id, 2, x, y);
-                break;
-            }
-            case MotionEvent.ACTION_POINTER_UP: {
-                final int pointerIndex = event.getActionIndex();
-                final int id = event.getPointerId(pointerIndex);
-                final float x = event.getX(pointerIndex);
-                final float y = event.getY(pointerIndex);
-                QuadNative.surfaceOnTouch(id, 1, x, y);
-                break;
-            }
-            case MotionEvent.ACTION_POINTER_DOWN: {
-                final int pointerIndex = event.getActionIndex();
-                final int id = event.getPointerId(pointerIndex);
-                final float x = event.getX(pointerIndex);
-                final float y = event.getY(pointerIndex);
-                QuadNative.surfaceOnTouch(id, 2, x, y);
-                break;
-            }
-            case MotionEvent.ACTION_CANCEL: {
-                for (int i = 0; i < pointerCount; i++) {
-                    final int id = event.getPointerId(i);
-                    final float x = event.getX(i);
-                    final float y = event.getY(i);
-                    QuadNative.surfaceOnTouch(id, 3, x, y);
+                case MotionEvent.ACTION_UP: {
+                    final int id = event.getPointerId(0);
+                    final float x = event.getX(0);
+                    final float y = event.getY(0);
+                    QuadNative.surfaceOnTouch(id, 1, x, y);
+                    break;
                 }
-                break;
+                case MotionEvent.ACTION_DOWN: {
+                    final int id = event.getPointerId(0);
+                    final float x = event.getX(0);
+                    final float y = event.getY(0);
+                    QuadNative.surfaceOnTouch(id, 2, x, y);
+                    break;
+                }
+                case MotionEvent.ACTION_POINTER_UP: {
+                    final int pointerIndex = event.getActionIndex();
+                    final int id = event.getPointerId(pointerIndex);
+                    final float x = event.getX(pointerIndex);
+                    final float y = event.getY(pointerIndex);
+                    QuadNative.surfaceOnTouch(id, 1, x, y);
+                    break;
+                }
+                case MotionEvent.ACTION_POINTER_DOWN: {
+                    final int pointerIndex = event.getActionIndex();
+                    final int id = event.getPointerId(pointerIndex);
+                    final float x = event.getX(pointerIndex);
+                    final float y = event.getY(pointerIndex);
+                    QuadNative.surfaceOnTouch(id, 2, x, y);
+                    break;
+                }
+                case MotionEvent.ACTION_CANCEL: {
+                    for (int i = 0; i < pointerCount; i++) {
+                        final int id = event.getPointerId(i);
+                        final float x = event.getX(i);
+                        final float y = event.getY(i);
+                        QuadNative.surfaceOnTouch(id, 3, x, y);
+                    }
+                    break;
+                }
+                default:
+                    break;
             }
-            default:
-                break;
+        } catch (Throwable t) {
+            MainActivity.reportStaticFatalError("Exception in onTouch", t);
         }
         return true;
     }
@@ -138,24 +165,28 @@ class QuadSurface extends SurfaceView
     @SuppressWarnings("deprecation")
     @Override
     public boolean onKey(View v, int keyCode, KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode != 0) {
-            QuadNative.surfaceOnKeyDown(keyCode);
-        }
-        if (event.getAction() == KeyEvent.ACTION_UP && keyCode != 0) {
-            QuadNative.surfaceOnKeyUp(keyCode);
-        }
-        if (event.getAction() == KeyEvent.ACTION_UP
-                || event.getAction() == KeyEvent.ACTION_MULTIPLE) {
-            int character = event.getUnicodeChar();
-            if (character == 0) {
-                String characters = event.getCharacters();
-                if (characters != null && characters.length() > 0) {
-                    character = characters.charAt(0);
+        try {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode != 0) {
+                QuadNative.surfaceOnKeyDown(keyCode);
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP && keyCode != 0) {
+                QuadNative.surfaceOnKeyUp(keyCode);
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP
+                    || event.getAction() == KeyEvent.ACTION_MULTIPLE) {
+                int character = event.getUnicodeChar();
+                if (character == 0) {
+                    String characters = event.getCharacters();
+                    if (characters != null && characters.length() > 0) {
+                        character = characters.charAt(0);
+                    }
+                }
+                if (character != 0) {
+                    QuadNative.surfaceOnCharacter(character);
                 }
             }
-            if (character != 0) {
-                QuadNative.surfaceOnCharacter(character);
-            }
+        } catch (Throwable t) {
+            MainActivity.reportStaticFatalError("Exception in onKey", t);
         }
         return true;
     }
@@ -181,15 +212,6 @@ class ResizingLayout extends LinearLayout implements View.OnApplyWindowInsetsLis
 
     @Override
     public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
-        if (Build.VERSION.SDK_INT >= 30) {
-            Insets imeInsets = insets.getInsets(WindowInsets.Type.ime());
-            Insets sysInsets = insets.getInsets(WindowInsets.Type.systemBars());
-            int bottomPadding = sysInsets.bottom;
-            if (imeInsets.bottom > 0) {
-                bottomPadding = imeInsets.bottom;
-            }
-            v.setPadding(sysInsets.left, sysInsets.top, sysInsets.right, bottomPadding);
-        }
         return insets;
     }
 }
@@ -207,17 +229,37 @@ public class MainActivity extends Activity {
     private static final int REQ_PICK_FOLDER = 1001;
     private static final int REQ_PICK_FILES = 1002;
 
+    private static volatile MainActivity currentInstance;
+    private static boolean libraryLoaded = false;
+    private static Throwable libraryLoadError = null;
+    private static boolean nativeStarted = false;
+
     private QuadSurface view;
     private File storageRoot;
     private volatile boolean importRunning = false;
-    private static boolean nativeStarted = false;
+    private volatile boolean crashScreenShown = false;
 
     static {
         try {
-            System.loadLibrary("c++_shared");
+            Os.setenv("RUST_MIN_STACK", "16777216", true);
         } catch (Throwable ignored) {
         }
-        System.loadLibrary("looking_glass");
+    }
+
+    private static synchronized void ensureLibraryLoaded() {
+        if (libraryLoaded || libraryLoadError != null) {
+            return;
+        }
+        try {
+            try {
+                System.loadLibrary("c++_shared");
+            } catch (Throwable ignored) {
+            }
+            System.loadLibrary("looking_glass");
+            libraryLoaded = true;
+        } catch (Throwable t) {
+            libraryLoadError = t;
+        }
     }
 
     private static final class DocEntry {
@@ -233,46 +275,83 @@ public class MainActivity extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        provisionStorage();
-        this.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().addFlags(LayoutParams.FLAG_KEEP_SCREEN_ON);
+        currentInstance = this;
+        installUncaughtExceptionHandler();
+        try {
+            provisionStorage();
+            this.requestWindowFeature(Window.FEATURE_NO_TITLE);
+            getWindow()
+                    .addFlags(
+                            LayoutParams.FLAG_KEEP_SCREEN_ON
+                                    | LayoutParams.FLAG_FULLSCREEN
+                                    | LayoutParams.FLAG_LAYOUT_NO_LIMITS);
+            applyFullscreenFlags();
 
-        view = new QuadSurface(this);
-        ResizingLayout layout = new ResizingLayout(this);
-        layout.addView(view);
-        setContentView(layout);
+            ensureLibraryLoaded();
+            if (libraryLoadError != null) {
+                reportFatalError(
+                        "Failed to load native library liblooking_glass.so", libraryLoadError);
+                return;
+            }
 
-        setFullScreen(true);
-        if (!nativeStarted) {
-            nativeStarted = true;
-            QuadNative.activityOnCreate(this);
+            if (!nativeStarted) {
+                nativeStarted = true;
+                QuadNative.activityOnCreate(this);
+            }
+
+            view = new QuadSurface(this);
+            ResizingLayout layout = new ResizingLayout(this);
+            layout.addView(
+                    view,
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.MATCH_PARENT));
+            setContentView(layout);
+        } catch (Throwable t) {
+            reportFatalError("Startup error in MainActivity.onCreate", t);
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        setFullScreen(true);
-        if (nativeStarted) {
-            QuadNative.activityOnResume();
+        currentInstance = this;
+        if (crashScreenShown) {
+            return;
+        }
+        applyFullscreenFlags();
+        if (nativeStarted && libraryLoaded) {
+            try {
+                QuadNative.activityOnResume();
+            } catch (Throwable t) {
+                reportFatalError("Error in onResume", t);
+            }
         }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        if (nativeStarted) {
-            QuadNative.activityOnPause();
+        if (nativeStarted && libraryLoaded && !crashScreenShown) {
+            try {
+                QuadNative.activityOnPause();
+            } catch (Throwable t) {
+                Log.e("LookingGlass", "Error in onPause", t);
+            }
         }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (nativeStarted) {
-            QuadNative.activityOnDestroy();
+        if (nativeStarted && libraryLoaded && !crashScreenShown) {
+            try {
+                QuadNative.activityOnDestroy();
+            } catch (Throwable t) {
+                Log.e("LookingGlass", "Error in onDestroy", t);
+            }
         }
-        if (isFinishing()) {
+        if (isFinishing() && !crashScreenShown) {
             System.exit(0);
         }
     }
@@ -280,18 +359,184 @@ public class MainActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        // Forward Android Back button/gesture to the engine (mapped to Escape in Input::ui)
-        // instead of terminating the activity.
-        QuadNative.surfaceOnKeyDown(KeyEvent.KEYCODE_BACK);
-        QuadNative.surfaceOnKeyUp(KeyEvent.KEYCODE_BACK);
+        if (crashScreenShown || !nativeStarted || !libraryLoaded) {
+            finish();
+            return;
+        }
+        try {
+            // Forward Android Back button/gesture to the engine (mapped to Escape in Input::ui)
+            // instead of terminating the activity.
+            QuadNative.surfaceOnKeyDown(KeyEvent.KEYCODE_BACK);
+            QuadNative.surfaceOnKeyUp(KeyEvent.KEYCODE_BACK);
+        } catch (Throwable t) {
+            reportFatalError("Error in onBackPressed", t);
+        }
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) {
-            setFullScreen(true);
+        if (hasFocus && !crashScreenShown) {
+            applyFullscreenFlags();
         }
+    }
+
+    private void installUncaughtExceptionHandler() {
+        final Thread.UncaughtExceptionHandler prev =
+                Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(
+                new Thread.UncaughtExceptionHandler() {
+                    @Override
+                    public void uncaughtException(Thread thread, Throwable throwable) {
+                        try {
+                            String report =
+                                    formatErrorReport(
+                                            "Uncaught exception on thread " + thread.getName(),
+                                            throwable);
+                            writeCrashLogFile(report);
+                        } catch (Throwable ignored) {
+                        }
+                        if (prev != null) {
+                            prev.uncaughtException(thread, throwable);
+                        }
+                    }
+                });
+    }
+
+    public static void reportStaticFatalError(String title, Throwable t) {
+        MainActivity inst = currentInstance;
+        if (inst != null) {
+            inst.reportFatalError(title, t);
+        } else {
+            Log.e("LookingGlass", title, t);
+        }
+    }
+
+    public void reportNativeCrash(final String message) {
+        final String fullReport =
+                "Looking Glass - Native Error Report\n"
+                        + "Device: "
+                        + Build.MANUFACTURER
+                        + " "
+                        + Build.MODEL
+                        + " (SDK "
+                        + Build.VERSION.SDK_INT
+                        + ")\n\n"
+                        + message;
+        writeCrashLogFile(fullReport);
+        showCrashScreen(fullReport);
+    }
+
+    public void reportFatalError(String title, Throwable t) {
+        Log.e("LookingGlass", title, t);
+        String fullReport = formatErrorReport(title, t);
+        writeCrashLogFile(fullReport);
+        showCrashScreen(fullReport);
+    }
+
+    private String formatErrorReport(String title, Throwable t) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        if (t != null) {
+            t.printStackTrace(pw);
+        }
+        pw.flush();
+        return "Looking Glass - Diagnostic Error Report\n"
+                + "Title: "
+                + title
+                + "\n"
+                + "Device: "
+                + Build.MANUFACTURER
+                + " "
+                + Build.MODEL
+                + " (Android "
+                + Build.VERSION.RELEASE
+                + ", SDK "
+                + Build.VERSION.SDK_INT
+                + ")\n\n"
+                + sw.toString();
+    }
+
+    private void writeCrashLogFile(String report) {
+        try {
+            File root = storageRoot != null ? storageRoot : getExternalFilesDir(null);
+            if (root == null) {
+                root = getFilesDir();
+            }
+            if (root != null) {
+                root.mkdirs();
+                File logFile = new File(root, "crash.log");
+                try (FileOutputStream out = new FileOutputStream(logFile)) {
+                    out.write(report.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void showCrashScreen(final String report) {
+        crashScreenShown = true;
+        runOnUiThread(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            LinearLayout root = new LinearLayout(MainActivity.this);
+                            root.setOrientation(LinearLayout.VERTICAL);
+                            root.setBackgroundColor(Color.rgb(24, 18, 28));
+                            root.setPadding(36, 36, 36, 36);
+
+                            TextView header = new TextView(MainActivity.this);
+                            header.setText("Looking Glass - Error Details (saved to crash.log)");
+                            header.setTextColor(Color.rgb(243, 229, 200));
+                            header.setTextSize(18f);
+                            root.addView(header);
+
+                            LinearLayout buttons = new LinearLayout(MainActivity.this);
+                            buttons.setOrientation(LinearLayout.HORIZONTAL);
+                            buttons.setPadding(0, 16, 0, 16);
+
+                            Button copyBtn = new Button(MainActivity.this);
+                            copyBtn.setText("Copy Error Log");
+                            copyBtn.setOnClickListener(
+                                    new View.OnClickListener() {
+                                        @Override
+                                        public void onClick(View v) {
+                                            setClipboardText(report);
+                                        }
+                                    });
+                            buttons.addView(copyBtn);
+
+                            Button closeBtn = new Button(MainActivity.this);
+                            closeBtn.setText("Close");
+                            closeBtn.setOnClickListener(
+                                    new View.OnClickListener() {
+                                        @Override
+                                        public void onClick(View v) {
+                                            finish();
+                                            System.exit(0);
+                                        }
+                                    });
+                            buttons.addView(closeBtn);
+                            root.addView(buttons);
+
+                            ScrollView scroll = new ScrollView(MainActivity.this);
+                            TextView body = new TextView(MainActivity.this);
+                            body.setText(report);
+                            body.setTextColor(Color.rgb(235, 190, 170));
+                            body.setTextSize(13f);
+                            scroll.addView(body);
+                            root.addView(
+                                    scroll,
+                                    new LinearLayout.LayoutParams(
+                                            LinearLayout.LayoutParams.MATCH_PARENT,
+                                            LinearLayout.LayoutParams.MATCH_PARENT));
+
+                            setContentView(root);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                });
     }
 
     private void provisionStorage() {
@@ -708,41 +953,36 @@ public class MainActivity extends Activity {
     }
 
     @SuppressWarnings("deprecation")
+    private void applyFullscreenFlags() {
+        try {
+            View decorView = getWindow().getDecorView();
+            if (decorView == null) {
+                return;
+            }
+            if (Build.VERSION.SDK_INT >= 28) {
+                getWindow().getAttributes().layoutInDisplayCutoutMode =
+                        LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            }
+            int uiOptions =
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+            decorView.setSystemUiVisibility(uiOptions);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @SuppressWarnings("deprecation")
     public void setFullScreen(final boolean fullscreen) {
         runOnUiThread(
                 new Runnable() {
                     @Override
                     public void run() {
-                        View decorView = getWindow().getDecorView();
-                        if (decorView == null) {
-                            return;
-                        }
                         if (fullscreen) {
-                            getWindow()
-                                    .setFlags(
-                                            LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                                            LayoutParams.FLAG_LAYOUT_NO_LIMITS);
-                            if (Build.VERSION.SDK_INT >= 28) {
-                                getWindow().getAttributes().layoutInDisplayCutoutMode =
-                                        LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-                            }
-                            if (Build.VERSION.SDK_INT >= 30) {
-                                getWindow().setDecorFitsSystemWindows(false);
-                            }
-                            int uiOptions =
-                                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                                            | View.SYSTEM_UI_FLAG_FULLSCREEN
-                                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-                            decorView.setSystemUiVisibility(uiOptions);
-                        } else {
-                            if (Build.VERSION.SDK_INT >= 30) {
-                                getWindow().setDecorFitsSystemWindows(true);
-                            } else {
-                                decorView.setSystemUiVisibility(0);
-                            }
+                            applyFullscreenFlags();
                         }
                     }
                 });

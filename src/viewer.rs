@@ -20,9 +20,9 @@ pub fn config() -> macroquad::conf::Conf {
             window_title: "Looking Glass".into(),
             window_width: 1200,
             window_height: 680,
-            fullscreen: android,
+            fullscreen: false,
             high_dpi: true,
-            sample_count: 1,
+            sample_count: if android { 0 } else { 1 },
             ..Default::default()
         },
         draw_call_vertex_capacity: 60000,
