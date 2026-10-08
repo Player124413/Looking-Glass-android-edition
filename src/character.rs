@@ -620,9 +620,14 @@ impl Character {
             let tex = if let Some(tex) = textures.get(&path) {
                 tex.clone()
             } else {
-                let image = texture::decode(assets, &path)?;
-                let tex = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
-                tex.set_filter(FilterMode::Linear);
+                let tex = if crate::android::is_android() {
+                    texture::load_gpu(assets, &path, true, true)?
+                } else {
+                    let image = texture::decode(assets, &path)?;
+                    let tex = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
+                    tex.set_filter(FilterMode::Linear);
+                    tex
+                };
                 textures.insert(path, tex.clone());
                 tex
             };

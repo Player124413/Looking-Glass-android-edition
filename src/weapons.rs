@@ -866,9 +866,14 @@ impl Prop {
             let path = texture::resolve(assets, &format!("{}/{skin}", def.path), specs)
                 .or_else(|| texture::resolve(assets, skin, specs))
                 .with_context(|| format!("Weapon texture {skin}"))?;
-            let image = texture::decode(assets, &path)?;
-            let tex = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
-            tex.set_filter(FilterMode::Linear);
+            let tex = if crate::android::is_android() {
+                texture::load_gpu(assets, &path, true, true)?
+            } else {
+                let image = texture::decode(assets, &path)?;
+                let tex = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
+                tex.set_filter(FilterMode::Linear);
+                tex
+            };
             material_layers.push(crate::render_fx::register(
                 assets,
                 &tex,

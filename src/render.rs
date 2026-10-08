@@ -415,9 +415,12 @@ fn load_layers(
                 if let Some(tex) = cache.get(&path) {
                     tex.clone()
                 } else {
-                    match texture::decode(assets, &path) {
-                        Ok(img) => {
-                            let tex = upload(img);
+                    match if crate::android::is_android() {
+                        texture::load_gpu(assets, &path, true, true)
+                    } else {
+                        texture::decode(assets, &path).map(upload)
+                    } {
+                        Ok(tex) => {
                             cache.insert(path, tex.clone());
                             tex
                         }
@@ -1171,8 +1174,22 @@ impl Scene {
                 }
             }
         }
-        let atlas = Texture2D::from_rgba8((cols * 128) as u16, (rows * 128) as u16, &atlas);
-        atlas.set_filter(FilterMode::Linear);
+        let atlas = if crate::android::is_android() {
+            texture::upload_gpu_unscaled(
+                &format!("$lightmap:{name}:{count}"),
+                texture::RgbaImage {
+                    width: (cols * 128) as u16,
+                    height: (rows * 128) as u16,
+                    pixels: atlas,
+                },
+                false,
+                false,
+            )
+        } else {
+            let t = Texture2D::from_rgba8((cols * 128) as u16, (rows * 128) as u16, &atlas);
+            t.set_filter(FilterMode::Linear);
+            t
+        };
         let fallback = Texture2D::from_rgba8(
             2,
             2,

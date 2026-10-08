@@ -237,6 +237,27 @@ impl PerformancePreset {
             Self::Performance => 30,
         }
     }
+
+    /// Maximum dimension for 3D world/actor textures on mobile GPUs before ETC2 compression.
+    pub fn max_texture_size(self) -> u16 {
+        if !is_android() {
+            return 4096;
+        }
+        match self.effective() {
+            Self::Quality | Self::Auto => 1024,
+            Self::Balanced => 512,
+            Self::Performance => 256,
+        }
+    }
+}
+
+pub fn etc2_cache_dir() -> Option<PathBuf> {
+    if !is_android() {
+        return None;
+    }
+    let dir = storage_root().join("cache").join("etc2_v1");
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir)
 }
 
 pub fn is_android() -> bool {

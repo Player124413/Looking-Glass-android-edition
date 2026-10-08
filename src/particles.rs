@@ -742,9 +742,14 @@ impl Steam {
                     let Some(path) = texture::resolve(assets, frame, &specs) else {
                         continue;
                     };
-                    let image = texture::decode(assets, &path)?;
-                    let t = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
-                    t.set_filter(FilterMode::Linear);
+                    let t = if crate::android::is_android() {
+                        texture::load_gpu(assets, &path, false, true)?
+                    } else {
+                        let image = texture::decode(assets, &path)?;
+                        let t = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
+                        t.set_filter(FilterMode::Linear);
+                        t
+                    };
                     textures.push(t);
                 }
                 if spec.light.is_none()
@@ -1254,9 +1259,14 @@ impl Attached {
                 let Some(path) = texture::resolve(assets, frame, materials) else {
                     continue;
                 };
-                let image = texture::decode(assets, &path)?;
-                let t = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
-                t.set_filter(FilterMode::Linear);
+                let t = if crate::android::is_android() {
+                    texture::load_gpu(assets, &path, false, true)?
+                } else {
+                    let image = texture::decode(assets, &path)?;
+                    let t = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
+                    t.set_filter(FilterMode::Linear);
+                    t
+                };
                 textures.push(t);
             }
             if textures.is_empty() || textures.len() != stage.images.len() {

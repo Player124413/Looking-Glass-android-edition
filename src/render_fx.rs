@@ -515,20 +515,25 @@ pub fn register(
             let Some(path) = texture::resolve(assets, name, &BTreeMap::new()) else {
                 continue;
             };
-            let image = texture::decode(assets, &path)?;
-            let tex = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
-            tex.set_filter(FilterMode::Linear);
-            // Model shaders tile too (notably the Queen's tentacle and base).
-            // CPU UV modifiers may leave [0,1]; clamping samples one edge texel.
-            if !stage.clamp {
-                unsafe {
-                    get_internal_gl().quad_context.texture_set_wrap(
-                        tex.raw_miniquad_id(),
-                        macroquad::miniquad::TextureWrap::Repeat,
-                        macroquad::miniquad::TextureWrap::Repeat,
-                    );
+            let tex = if crate::android::is_android() {
+                texture::load_gpu(assets, &path, !stage.clamp, true)?
+            } else {
+                let image = texture::decode(assets, &path)?;
+                let tex = Texture2D::from_rgba8(image.width, image.height, &image.pixels);
+                tex.set_filter(FilterMode::Linear);
+                // Model shaders tile too (notably the Queen's tentacle and base).
+                // CPU UV modifiers may leave [0,1]; clamping samples one edge texel.
+                if !stage.clamp {
+                    unsafe {
+                        get_internal_gl().quad_context.texture_set_wrap(
+                            tex.raw_miniquad_id(),
+                            macroquad::miniquad::TextureWrap::Repeat,
+                            macroquad::miniquad::TextureWrap::Repeat,
+                        );
+                    }
                 }
-            }
+                tex
+            };
             textures.push(tex);
         }
         if textures.len() == stage.images.len() {
