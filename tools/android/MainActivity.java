@@ -1,21 +1,31 @@
 package com.lookingglass.alice;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.system.Os;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.TextPaint;
+import android.text.method.LinkMovementMethod;
+import android.text.style.ClickableSpan;
 import android.util.Log;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -33,12 +43,16 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -264,9 +278,22 @@ public class MainActivity extends Activity {
     private static Throwable libraryLoadError = null;
     private static boolean nativeStarted = false;
 
+    private static final String TELEGRAM_URL = "https://t.me/player1444ports";
+    private static final String ORIGINAL_REPO_URL = "https://github.com/skulitom/LookingGlass";
+    private static final String PORT_REPO_RELEASES_API =
+            "https://api.github.com/repos/Player124413/LookingGlass/releases/latest";
+    private static final String PORT_REPO_COMMITS_API =
+            "https://api.github.com/repos/Player124413/LookingGlass/commits?per_page=1";
+    private static final String PORT_REPO_WEB_URL =
+            "https://github.com/Player124413/LookingGlass/actions";
+    private static final String BUILD_COMMIT_SHA = "__BUILD_COMMIT_SHA__";
+    private static final String BUILD_VERSION = "0.32.0";
+    private static boolean startupDialogShown = false;
+
     private QuadSurface view;
     private File storageRoot;
     private volatile boolean importRunning = false;
+    private volatile boolean updateCheckRunning = false;
     private volatile boolean crashScreenShown = false;
 
     private int padButtons = 0;
@@ -349,6 +376,18 @@ public class MainActivity extends Activity {
                             LinearLayout.LayoutParams.MATCH_PARENT,
                             LinearLayout.LayoutParams.MATCH_PARENT));
             setContentView(layout);
+
+            if (!startupDialogShown) {
+                startupDialogShown = true;
+                view.postDelayed(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                showCreditsDialogInternal();
+                            }
+                        },
+                        180);
+            }
         } catch (Throwable t) {
             reportFatalError("Startup error in MainActivity.onCreate", t);
         }
@@ -718,8 +757,674 @@ public class MainActivity extends Activity {
                 });
     }
 
+    private static boolean isRussianLocale() {
+        try {
+            String lang = Locale.getDefault().getLanguage();
+            if (lang == null) {
+                return false;
+            }
+            lang = lang.toLowerCase(Locale.ROOT);
+            return lang.startsWith("ru")
+                    || lang.startsWith("uk")
+                    || lang.startsWith("be")
+                    || lang.startsWith("kk");
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static String getInstalledCommitSha() {
+        String placeholder = "__BUILD_COMMIT" + "_SHA__";
+        if (BUILD_COMMIT_SHA == null
+                || BUILD_COMMIT_SHA.isEmpty()
+                || BUILD_COMMIT_SHA.equals(placeholder)) {
+            return "dev";
+        }
+        return BUILD_COMMIT_SHA;
+    }
+
+    private void openExternalUrl(final String url) {
+        runOnUiThread(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(intent);
+                        } catch (Throwable t) {
+                            writeImportStatus("IDLE", "Link: " + url);
+                        }
+                    }
+                });
+    }
+
+    public void openTelegramLink() {
+        openExternalUrl(TELEGRAM_URL);
+    }
+
+    public void openGithubLink() {
+        openExternalUrl(ORIGINAL_REPO_URL);
+    }
+
+    public void showCreditsDialog() {
+        runOnUiThread(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        showCreditsDialogInternal();
+                    }
+                });
+    }
+
+    private Button createStyledDialogButton(
+            String text, int bgColor, int strokeColor, View.OnClickListener listener) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setAllCaps(false);
+        btn.setTextColor(Color.rgb(255, 245, 224));
+        btn.setTextSize(14f);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(bgColor);
+        bg.setCornerRadius(14f);
+        bg.setStroke(2, strokeColor);
+        btn.setBackground(bg);
+        btn.setPadding(24, 16, 24, 16);
+        btn.setOnClickListener(listener);
+        return btn;
+    }
+
+    private SpannableString buildLinkifiedCreditsText(boolean ru) {
+        final String text =
+                ru
+                        ? ("Port made by Player1444\n"
+                                + "Telegram: "
+                                + TELEGRAM_URL
+                                + "\n\n"
+                                + "Спасибо огромное челу, что создал этот репозиторий:\n"
+                                + ORIGINAL_REPO_URL
+                                + "\n"
+                                + "Без этого репозитория порт бы не вышел!")
+                        : ("Port made by Player1444\n"
+                                + "Telegram: "
+                                + TELEGRAM_URL
+                                + "\n\n"
+                                + "Huge thanks to the creator of this repository:\n"
+                                + ORIGINAL_REPO_URL
+                                + "\n"
+                                + "Without this repository, the port would not have been released!");
+
+        SpannableString span = new SpannableString(text);
+        attachClickableUrl(span, text, TELEGRAM_URL);
+        attachClickableUrl(span, text, ORIGINAL_REPO_URL);
+        return span;
+    }
+
+    private void attachClickableUrl(SpannableString span, String fullText, final String url) {
+        int start = fullText.indexOf(url);
+        if (start < 0) {
+            return;
+        }
+        int end = start + url.length();
+        span.setSpan(
+                new ClickableSpan() {
+                    @Override
+                    public void onClick(View widget) {
+                        openExternalUrl(url);
+                    }
+
+                    @Override
+                    public void updateDrawState(TextPaint ds) {
+                        super.updateDrawState(ds);
+                        ds.setColor(Color.rgb(115, 198, 255));
+                        ds.setUnderlineText(true);
+                    }
+                },
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+
+    private void showCreditsDialogInternal() {
+        if (isFinishing() || crashScreenShown) {
+            return;
+        }
+        try {
+            final boolean ru = isRussianLocale();
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(44, 36, 44, 32);
+            GradientDrawable cardBg = new GradientDrawable();
+            cardBg.setColor(Color.rgb(28, 22, 36));
+            cardBg.setCornerRadius(22f);
+            cardBg.setStroke(3, Color.rgb(201, 169, 124));
+            card.setBackground(cardBg);
+
+            TextView title = new TextView(this);
+            title.setText("Looking Glass — Android Port");
+            title.setTextColor(Color.rgb(245, 203, 167));
+            title.setTextSize(20f);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            title.setGravity(Gravity.CENTER_HORIZONTAL);
+            card.addView(title);
+
+            TextView subtitle = new TextView(this);
+            String sha = getInstalledCommitSha();
+            subtitle.setText(
+                    ru
+                            ? ("Версия v" + BUILD_VERSION + " (" + sha + ")")
+                            : ("Version v" + BUILD_VERSION + " (" + sha + ")"));
+            subtitle.setTextColor(Color.rgb(180, 165, 148));
+            subtitle.setTextSize(12.5f);
+            subtitle.setGravity(Gravity.CENTER_HORIZONTAL);
+            subtitle.setPadding(0, 4, 0, 18);
+            card.addView(subtitle);
+
+            TextView message = new TextView(this);
+            message.setText(buildLinkifiedCreditsText(ru));
+            message.setTextColor(Color.rgb(243, 229, 200));
+            message.setHighlightColor(Color.TRANSPARENT);
+            message.setTextSize(15.5f);
+            message.setLineSpacing(6f, 1.08f);
+            message.setMovementMethod(LinkMovementMethod.getInstance());
+            card.addView(message);
+
+            LinearLayout.LayoutParams btnParams =
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT);
+            btnParams.setMargins(0, 14, 0, 0);
+
+            Button tgBtn =
+                    createStyledDialogButton(
+                            ru
+                                    ? "Telegram: https://t.me/player1444ports"
+                                    : "Telegram: https://t.me/player1444ports",
+                            Color.rgb(27, 79, 114),
+                            Color.rgb(133, 193, 233),
+                            new View.OnClickListener() {
+                                @Override
+                                public void onClick(View v) {
+                                    openExternalUrl(TELEGRAM_URL);
+                                }
+                            });
+            card.addView(tgBtn, btnParams);
+
+            Button ghBtn =
+                    createStyledDialogButton(
+                            ru
+                                    ? "GitHub: skulitom/LookingGlass"
+                                    : "GitHub: skulitom/LookingGlass",
+                            Color.rgb(74, 35, 90),
+                            Color.rgb(187, 143, 206),
+                            new View.OnClickListener() {
+                                @Override
+                                public void onClick(View v) {
+                                    openExternalUrl(ORIGINAL_REPO_URL);
+                                }
+                            });
+            card.addView(ghBtn, btnParams);
+
+            final AlertDialog dialog =
+                    new AlertDialog.Builder(this).setView(card).setCancelable(true).create();
+
+            Button updateBtn =
+                    createStyledDialogButton(
+                            ru ? "Проверить обновления (Check for Updates)" : "Check for Updates",
+                            Color.rgb(125, 90, 43),
+                            Color.rgb(245, 203, 167),
+                            new View.OnClickListener() {
+                                @Override
+                                public void onClick(View v) {
+                                    checkForUpdates();
+                                }
+                            });
+            card.addView(updateBtn, btnParams);
+
+            Button closeBtn =
+                    createStyledDialogButton(
+                            ru ? "Продолжить" : "Continue",
+                            Color.rgb(39, 110, 54),
+                            Color.rgb(130, 224, 170),
+                            new View.OnClickListener() {
+                                @Override
+                                public void onClick(View v) {
+                                    dialog.dismiss();
+                                    applyFullscreenFlags();
+                                }
+                            });
+            card.addView(closeBtn, btnParams);
+
+            dialog.setOnDismissListener(
+                    new DialogInterface.OnDismissListener() {
+                        @Override
+                        public void onDismiss(DialogInterface d) {
+                            applyFullscreenFlags();
+                        }
+                    });
+            if (dialog.getWindow() != null) {
+                dialog.getWindow()
+                        .setBackgroundDrawable(new GradientDrawable(
+                                GradientDrawable.Orientation.TOP_BOTTOM,
+                                new int[] {Color.TRANSPARENT, Color.TRANSPARENT}));
+            }
+            dialog.show();
+        } catch (Throwable t) {
+            Log.e("LookingGlass", "Error showing startup credits dialog", t);
+        }
+    }
+
+    private static String extractJsonField(String json, String key) {
+        if (json == null || key == null) {
+            return null;
+        }
+        String pattern = "\"" + key + "\"";
+        int idx = json.indexOf(pattern);
+        if (idx < 0) {
+            return null;
+        }
+        int colon = json.indexOf(':', idx + pattern.length());
+        if (colon < 0) {
+            return null;
+        }
+        int firstQuote = json.indexOf('"', colon + 1);
+        if (firstQuote < 0) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        boolean escaped = false;
+        for (int i = firstQuote + 1; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (escaped) {
+                sb.append(c);
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                return sb.toString();
+            } else {
+                sb.append(c);
+            }
+        }
+        return null;
+    }
+
+    private static String extractApkDownloadUrl(String json) {
+        if (json == null) {
+            return null;
+        }
+        int searchFrom = 0;
+        while (true) {
+            int idx = json.indexOf("\"browser_download_url\"", searchFrom);
+            if (idx < 0) {
+                return null;
+            }
+            String sub = json.substring(idx);
+            String url = extractJsonField(sub, "browser_download_url");
+            if (url != null && url.toLowerCase(Locale.ROOT).endsWith(".apk")) {
+                return url;
+            }
+            searchFrom = idx + 22;
+        }
+    }
+
+    private static String httpGetString(String urlString) throws Exception {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(urlString);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setRequestProperty("Accept", "application/vnd.github+json");
+            conn.setRequestProperty("User-Agent", "LookingGlass-Android-Updater/1.0");
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) {
+                throw new Exception("HTTP " + code);
+            }
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader =
+                    new BufferedReader(
+                            new InputStreamReader(
+                                    conn.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line).append('\n');
+                }
+            }
+            return sb.toString();
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    public void checkForUpdates() {
+        if (updateCheckRunning) {
+            return;
+        }
+        updateCheckRunning = true;
+        final boolean ru = isRussianLocale();
+        writeImportStatus(
+                "WORKING",
+                ru
+                        ? "Проверка обновлений на GitHub..."
+                        : "Checking for updates on GitHub...");
+        new Thread(
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                String latestTag = null;
+                                String latestSha = null;
+                                String apkUrl = null;
+                                String htmlUrl = PORT_REPO_WEB_URL;
+                                Exception lastErr = null;
+
+                                try {
+                                    String relJson = httpGetString(PORT_REPO_RELEASES_API);
+                                    latestTag = extractJsonField(relJson, "tag_name");
+                                    String relHtml = extractJsonField(relJson, "html_url");
+                                    if (relHtml != null && !relHtml.isEmpty()) {
+                                        htmlUrl = relHtml;
+                                    }
+                                    apkUrl = extractApkDownloadUrl(relJson);
+                                } catch (Exception e) {
+                                    lastErr = e;
+                                }
+
+                                try {
+                                    String commitsJson = httpGetString(PORT_REPO_COMMITS_API);
+                                    String sha = extractJsonField(commitsJson, "sha");
+                                    if (sha != null && sha.length() >= 7) {
+                                        latestSha = sha.substring(0, 7);
+                                    }
+                                    String commitHtml = extractJsonField(commitsJson, "html_url");
+                                    if (commitHtml != null
+                                            && !commitHtml.isEmpty()
+                                            && latestTag == null) {
+                                        htmlUrl = commitHtml;
+                                    }
+                                } catch (Exception e) {
+                                    if (lastErr == null) {
+                                        lastErr = e;
+                                    }
+                                }
+
+                                final String installedSha = getInstalledCommitSha();
+                                final String finalTag = latestTag;
+                                final String finalSha = latestSha;
+                                final String finalApkUrl = apkUrl;
+                                final String finalHtmlUrl = htmlUrl;
+                                final Exception finalErr =
+                                        (latestTag == null && latestSha == null) ? lastErr : null;
+
+                                updateCheckRunning = false;
+                                runOnUiThread(
+                                        new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                showUpdateResultDialog(
+                                                        ru,
+                                                        installedSha,
+                                                        finalTag,
+                                                        finalSha,
+                                                        finalApkUrl,
+                                                        finalHtmlUrl,
+                                                        finalErr);
+                                            }
+                                        });
+                            }
+                        },
+                        "lg-update-checker")
+                .start();
+    }
+
+    private void showUpdateResultDialog(
+            final boolean ru,
+            String installedSha,
+            String latestTag,
+            String latestSha,
+            final String apkUrl,
+            final String htmlUrl,
+            Exception error) {
+        if (isFinishing() || crashScreenShown) {
+            return;
+        }
+        try {
+            boolean hasNewer = false;
+            String remoteDesc;
+            if (latestTag != null && latestSha != null) {
+                remoteDesc = latestTag + " (" + latestSha + ")";
+            } else if (latestTag != null) {
+                remoteDesc = latestTag;
+            } else if (latestSha != null) {
+                remoteDesc = "commit " + latestSha;
+            } else {
+                remoteDesc = "unknown";
+            }
+
+            if (latestSha != null
+                    && !installedSha.equals("dev")
+                    && !latestSha.equalsIgnoreCase(installedSha)
+                    && !installedSha.toLowerCase(Locale.ROOT).startsWith(
+                            latestSha.toLowerCase(Locale.ROOT))) {
+                hasNewer = true;
+            } else if (latestTag != null
+                    && !latestTag.equals("v" + BUILD_VERSION)
+                    && !latestTag.equals(BUILD_VERSION)) {
+                hasNewer = true;
+            }
+
+            if (error != null) {
+                writeImportStatus(
+                        "IDLE",
+                        ru
+                                ? "Не удалось проверить обновления автоматически. Проверьте Telegram: t.me/player1444ports"
+                                : "Could not reach GitHub API. Check updates on Telegram: t.me/player1444ports");
+            } else if (hasNewer) {
+                writeImportStatus(
+                        "IDLE",
+                        ru
+                                ? ("Доступно обновление: " + remoteDesc)
+                                : ("Update available: " + remoteDesc));
+            } else {
+                writeImportStatus(
+                        "IDLE",
+                        ru
+                                ? ("Установлена последняя версия (" + installedSha + ").")
+                                : ("Up to date (" + installedSha + ")."));
+            }
+
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(44, 36, 44, 32);
+            GradientDrawable cardBg = new GradientDrawable();
+            cardBg.setColor(Color.rgb(28, 22, 36));
+            cardBg.setCornerRadius(22f);
+            cardBg.setStroke(3, Color.rgb(201, 169, 124));
+            card.setBackground(cardBg);
+
+            TextView title = new TextView(this);
+            if (error != null) {
+                title.setText(ru ? "Проверка обновлений" : "Check for Updates");
+            } else if (hasNewer) {
+                title.setText(ru ? "Доступно обновление!" : "Update Available!");
+            } else {
+                title.setText(ru ? "Установлена последняя версия" : "Up to Date");
+            }
+            title.setTextColor(Color.rgb(245, 203, 167));
+            title.setTextSize(20f);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            title.setGravity(Gravity.CENTER_HORIZONTAL);
+            card.addView(title);
+
+            TextView body = new TextView(this);
+            body.setPadding(0, 18, 0, 12);
+            body.setTextColor(Color.rgb(243, 229, 200));
+            body.setTextSize(15f);
+            body.setLineSpacing(5f, 1.08f);
+
+            if (error != null) {
+                body.setText(
+                        ru
+                                ? ("Не удалось подключиться к GitHub API ("
+                                        + error.getMessage()
+                                        + ").\n\n"
+                                        + "Текущая сборка: v"
+                                        + BUILD_VERSION
+                                        + " ("
+                                        + installedSha
+                                        + ")\n"
+                                        + "Вы можете проверить и скачать свежий APK в Telegram-канале Player1444 или на GitHub.\n\n"
+                                        + "Новый APK устанавливается поверх текущего без удаления игры!")
+                                : ("Could not reach GitHub API ("
+                                        + error.getMessage()
+                                        + ").\n\n"
+                                        + "Installed build: v"
+                                        + BUILD_VERSION
+                                        + " ("
+                                        + installedSha
+                                        + ")\n"
+                                        + "You can check and download the latest APK on Player1444's Telegram channel or GitHub.\n\n"
+                                        + "New APKs install directly over the current app without uninstalling!"));
+            } else if (hasNewer) {
+                body.setText(
+                        ru
+                                ? ("Найдена новая сборка порта!\n\n"
+                                        + "Установлено: v"
+                                        + BUILD_VERSION
+                                        + " ("
+                                        + installedSha
+                                        + ")\n"
+                                        + "Доступно: "
+                                        + remoteDesc
+                                        + "\n\n"
+                                        + "Просто скачайте и установите новый APK поверх текущего — удалять старый APK НЕ нужно, все ваши файлы .pk3, кэш и сохранения останутся на месте!")
+                                : ("A newer build of the port is available!\n\n"
+                                        + "Installed: v"
+                                        + BUILD_VERSION
+                                        + " ("
+                                        + installedSha
+                                        + ")\n"
+                                        + "Latest: "
+                                        + remoteDesc
+                                        + "\n\n"
+                                        + "Simply download and install the new APK directly over the current one — no need to uninstall first, all your .pk3 files, cache, and saves are preserved!"));
+            } else {
+                body.setText(
+                        ru
+                                ? ("У вас уже установлена самая актуальная версия порта!\n\n"
+                                        + "Текущая сборка: v"
+                                        + BUILD_VERSION
+                                        + " ("
+                                        + installedSha
+                                        + ")\n"
+                                        + "Удалённая версия: "
+                                        + remoteDesc
+                                        + "\n\n"
+                                        + "При выходе новых версий вы сможете обновить APK прямо поверх текущего без удаления игры.")
+                                : ("You are already running the latest version of the port!\n\n"
+                                        + "Installed build: v"
+                                        + BUILD_VERSION
+                                        + " ("
+                                        + installedSha
+                                        + ")\n"
+                                        + "Remote version: "
+                                        + remoteDesc
+                                        + "\n\n"
+                                        + "Future updates can be installed directly over the current APK without uninstalling."));
+            }
+            card.addView(body);
+
+            LinearLayout.LayoutParams btnParams =
+                    new LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT);
+            btnParams.setMargins(0, 14, 0, 0);
+
+            if (apkUrl != null && !apkUrl.isEmpty()) {
+                Button dlBtn =
+                        createStyledDialogButton(
+                                ru ? "Скачать новый APK напрямую" : "Download Latest APK Directly",
+                                Color.rgb(39, 110, 54),
+                                Color.rgb(130, 224, 170),
+                                new View.OnClickListener() {
+                                    @Override
+                                    public void onClick(View v) {
+                                        openExternalUrl(apkUrl);
+                                    }
+                                });
+                card.addView(dlBtn, btnParams);
+            }
+
+            Button tgBtn =
+                    createStyledDialogButton(
+                            ru
+                                    ? "Канал обновлений: t.me/player1444ports"
+                                    : "Updates Channel: t.me/player1444ports",
+                            Color.rgb(27, 79, 114),
+                            Color.rgb(133, 193, 233),
+                            new View.OnClickListener() {
+                                @Override
+                                public void onClick(View v) {
+                                    openExternalUrl(TELEGRAM_URL);
+                                }
+                            });
+            card.addView(tgBtn, btnParams);
+
+            Button ghBtn =
+                    createStyledDialogButton(
+                            ru ? "Открыть страницу сборок GitHub" : "Open GitHub Builds / Releases",
+                            Color.rgb(74, 35, 90),
+                            Color.rgb(187, 143, 206),
+                            new View.OnClickListener() {
+                                @Override
+                                public void onClick(View v) {
+                                    openExternalUrl(htmlUrl);
+                                }
+                            });
+            card.addView(ghBtn, btnParams);
+
+            final AlertDialog dialog =
+                    new AlertDialog.Builder(this).setView(card).setCancelable(true).create();
+
+            Button okBtn =
+                    createStyledDialogButton(
+                            ru ? "Закрыть" : "Close",
+                            Color.rgb(52, 42, 56),
+                            Color.rgb(201, 169, 124),
+                            new View.OnClickListener() {
+                                @Override
+                                public void onClick(View v) {
+                                    dialog.dismiss();
+                                    applyFullscreenFlags();
+                                }
+                            });
+            card.addView(okBtn, btnParams);
+
+            dialog.setOnDismissListener(
+                    new DialogInterface.OnDismissListener() {
+                        @Override
+                        public void onDismiss(DialogInterface d) {
+                            applyFullscreenFlags();
+                        }
+                    });
+            if (dialog.getWindow() != null) {
+                dialog.getWindow()
+                        .setBackgroundDrawable(new GradientDrawable(
+                                GradientDrawable.Orientation.TOP_BOTTOM,
+                                new int[] {Color.TRANSPARENT, Color.TRANSPARENT}));
+            }
+            dialog.show();
+        } catch (Throwable t) {
+            Log.e("LookingGlass", "Error showing update dialog", t);
+        }
+    }
+
     private void provisionStorage() {
         try {
+            Os.setenv("LOOKING_GLASS_ANDROID_LANG", isRussianLocale() ? "ru" : "en", true);
             File ext = getExternalFilesDir(null);
             if (ext == null) {
                 ext = getFilesDir();

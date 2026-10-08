@@ -69,6 +69,16 @@ class AndroidPortTest(unittest.TestCase):
             self.assertIn("public void openFolderPicker()", java_src)
             self.assertIn("public void openFilePicker()", java_src)
             self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", java_src)
+            self.assertIn("Port made by Player1444", java_src)
+            self.assertIn("https://t.me/player1444ports", java_src)
+            self.assertIn("https://github.com/skulitom/LookingGlass", java_src)
+            self.assertIn("public void checkForUpdates()", java_src)
+            self.assertIn("public void showCreditsDialog()", java_src)
+            self.assertNotIn("__BUILD_COMMIT_SHA__", java_src)
+            self.assertTrue(len(package_android.FIXED_SIGNING_KEYSTORE_B64) > 1000)
+
+            manifest_xml = files["manifest"].read_text(encoding="utf-8")
+            self.assertIn("android.permission.INTERNET", manifest_xml)
 
             quad_src = files["quad_native"].read_text(encoding="utf-8")
             self.assertIn("package quad_native;", quad_src)

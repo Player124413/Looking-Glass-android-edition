@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import glob
 import hashlib
 import os
@@ -15,6 +16,60 @@ import tomllib
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+# Fixed PKCS#12 signing keystore (alias: androiddebugkey, password: android)
+# so every APK build shares the exact same certificate and can be updated in-place
+# on Android without uninstalling the previous version.
+FIXED_SIGNING_KEYSTORE_B64 = (
+    "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"
+)
 
 MANIFEST_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -37,6 +92,7 @@ MANIFEST_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
         android:name="android.hardware.gamepad"
         android:required="false" />
 
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -122,17 +178,47 @@ Tap **Scan & Start** on the setup screen (or relaunch the app) to enter Wonderla
 """
 
 
+def _git_build_info() -> tuple[int, str]:
+    commit_count = 0
+    git_sha = "dev"
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        commit_count = max(0, int(out))
+    except Exception:
+        pass
+    try:
+        sha = subprocess.check_output(
+            ["git", "rev-parse", "--short=7", "HEAD"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if sha:
+            git_sha = sha
+    except Exception:
+        pass
+    return commit_count, git_sha
+
+
 def load_android_metadata() -> dict[str, object]:
     cargo = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     pkg = cargo["package"]
     meta = dict(pkg.get("metadata", {}).get("android", {}))
+    commit_count, git_sha = _git_build_info()
+    base_version_code = int(meta.get("version_code", 3200))
     return {
         "name": pkg["name"],
         "version": pkg["version"],
         "package_name": meta.get("package_name", "com.lookingglass.alice"),
         "label": meta.get("label", "Looking Glass"),
-        "version_code": int(meta.get("version_code", 3200)),
+        "version_code": base_version_code + commit_count,
         "version_name": meta.get("version_name", pkg["version"]),
+        "git_sha": git_sha,
         "min_sdk_version": int(meta.get("min_sdk_version", 26)),
         "target_sdk_version": int(meta.get("target_sdk_version", 34)),
         "orientation": meta.get("orientation", "sensorLandscape"),
@@ -162,6 +248,7 @@ def generate_layout(out_dir: pathlib.Path) -> dict[str, pathlib.Path]:
         newline="\n",
     )
     main_java = (ROOT / "tools" / "android" / "MainActivity.java").read_text(encoding="utf-8")
+    main_java = main_java.replace("__BUILD_COMMIT_SHA__", str(meta.get("git_sha", "dev")))
     quad_java = (ROOT / "tools" / "android" / "QuadNative.java").read_text(encoding="utf-8")
     activity_path.write_text(main_java, encoding="utf-8", newline="\n")
     quad_native_path.write_text(quad_java, encoding="utf-8", newline="\n")
@@ -1180,36 +1267,19 @@ def try_build_signed_apk(
     final_apk = dist_dir / f"LookingGlass-v{meta['version']}-android.apk"
     run_cmd([str(zipalign), "-f", "-p", "4", str(unaligned_apk), str(final_apk)])
 
-    keystore = work / "debug.keystore"
-    run_cmd(
-        [
-            keytool,
-            "-genkeypair",
-            "-keystore",
-            str(keystore),
-            "-storepass",
-            "android",
-            "-alias",
-            "androiddebugkey",
-            "-keypass",
-            "android",
-            "-dname",
-            "CN=Android Debug,O=Android,C=US",
-            "-keyalg",
-            "RSA",
-            "-keysize",
-            "2048",
-            "-validity",
-            "10000",
-        ]
-    )
+    keystore = work / "release.keystore"
+    keystore.write_bytes(base64.b64decode(FIXED_SIGNING_KEYSTORE_B64))
     run_cmd(
         [
             str(apksigner),
             "sign",
             "--ks",
             str(keystore),
+            "--ks-key-alias",
+            "androiddebugkey",
             "--ks-pass",
+            "pass:android",
+            "--key-pass",
             "pass:android",
             str(final_apk),
         ]

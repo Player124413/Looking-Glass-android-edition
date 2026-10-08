@@ -609,6 +609,26 @@ pub fn open_system_file_picker() -> bool {
     call_activity_void("openFilePicker")
 }
 
+/// Open Player1444's Telegram channel (`https://t.me/player1444ports`).
+pub fn open_telegram_link() -> bool {
+    call_activity_void("openTelegramLink")
+}
+
+/// Open the original LookingGlass repository (`https://github.com/skulitom/LookingGlass`).
+pub fn open_github_link() -> bool {
+    call_activity_void("openGithubLink")
+}
+
+/// Show the localized Startup Credits & Links window (`MainActivity.showCreditsDialog()`).
+pub fn show_credits_dialog() -> bool {
+    call_activity_void("showCreditsDialog")
+}
+
+/// Trigger an asynchronous GitHub update check (`MainActivity.checkForUpdates()`).
+pub fn check_for_updates() -> bool {
+    call_activity_void("checkForUpdates")
+}
+
 fn collect_pk3_and_zip_files(
     dir: &Path,
     depth: usize,
@@ -897,17 +917,6 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             2. * s,
             Color::from_hex(0x8c6d46),
         );
-        let x = panel.x + 26. * s;
-        let mut y = panel.y + 34. * s;
-        draw_text(
-            "Looking Glass - Android Launcher",
-            x,
-            y,
-            (28. * s).round(),
-            Color::from_hex(0xf3e5c8),
-        );
-        y += 26. * s;
-
         let pointer = touches()
             .iter()
             .find(|t| t.phase == TouchPhase::Started)
@@ -915,6 +924,62 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             .or_else(|| {
                 is_mouse_button_pressed(MouseButton::Left).then(|| Vec2::from(mouse_position()))
             });
+
+        let x = panel.x + 26. * s;
+        let mut y = panel.y + 34. * s;
+        draw_text(
+            "Looking Glass - Android Launcher",
+            x,
+            y,
+            (26. * s).round(),
+            Color::from_hex(0xf3e5c8),
+        );
+
+        let top_btn_y = panel.y + 10. * s;
+        let tg_btn = Rect::new(panel.right() - 486. * s, top_btn_y, 206. * s, 32. * s);
+        let upd_btn = Rect::new(panel.right() - 272. * s, top_btn_y, 152. * s, 32. * s);
+        let info_btn = Rect::new(panel.right() - 112. * s, top_btn_y, 94. * s, 32. * s);
+        for (rect, label, fill, border) in [
+            (
+                tg_btn,
+                "Port by Player1444 (TG)",
+                Color::from_hex(0x1b4f72),
+                Color::from_hex(0x85c1e9),
+            ),
+            (
+                upd_btn,
+                "Check Updates",
+                Color::from_hex(0x7d5a2b),
+                Color::from_hex(0xf5cba7),
+            ),
+            (
+                info_btn,
+                "Credits",
+                Color::from_hex(0x4a235a),
+                Color::from_hex(0xbb8fce),
+            ),
+        ] {
+            draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
+            draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.5 * s, border);
+            draw_text(
+                label,
+                rect.x + 10. * s,
+                rect.y + 22. * s,
+                (16. * s).round(),
+                WHITE,
+            );
+        }
+        if pointer.is_some_and(|p| tg_btn.contains(p)) {
+            let _ = open_telegram_link();
+            status = "Opening https://t.me/player1444ports ...".into();
+        } else if pointer.is_some_and(|p| upd_btn.contains(p)) {
+            let _ = check_for_updates();
+            status = "Checking for updates on GitHub...".into();
+        } else if pointer.is_some_and(|p| info_btn.contains(p)) {
+            let _ = show_credits_dialog();
+        }
+
+        y += 26. * s;
 
         if !browsing {
             for line in [
