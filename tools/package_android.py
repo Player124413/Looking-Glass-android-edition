@@ -358,6 +358,7 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
         "    txt = egl_rs.read_text(encoding='utf-8')\n"
         "    txt = txt.replace('EGL_SAMPLES, sample_count as u32,', '0x3040, 4,')\n"
         "    txt = txt.replace('&& d == 16', '&& d >= 16')\n"
+        "    assert '0x3040, 4,' in txt and '&& d >= 16' in txt, 'Failed to patch miniquad egl.rs'\n"
         "    egl_rs.write_text(txt, encoding='utf-8')\n"
         "if android_rs.is_file():\n"
         "    txt = android_rs.read_text(encoding='utf-8')\n"
@@ -545,8 +546,10 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
         "        '    });'\n"
         "    )\n"
         "    txt = txt.replace(old_spawn, new_spawn)\n"
+        "    for marker in ['try_borrow_mut()', 'ANativeWindow_setBuffersGeometry', 'let surface = loop {', 'stack_size(16 * 1024 * 1024)']:\n"
+        "        assert marker in txt, f'Failed to patch miniquad android.rs: missing {marker}'\n"
         "    android_rs.write_text(txt, encoding='utf-8')\n"
-        "    print('Patched miniquad android.rs and egl.rs for Android compatibility', flush=True)\n",
+        "    print('::notice title=Miniquad Patch::Patched miniquad egl.rs and android.rs for Android compatibility', flush=True)\n",
         encoding="utf-8",
     )
 
@@ -624,7 +627,30 @@ def verify_jni_exports(ndk_root: pathlib.Path | None, so_path: pathlib.Path) -> 
     if missing:
         emit_ci_error("Missing JNI exports in .so", f"Missing: {missing} | Exported count: {len(exported)}")
         raise SystemExit(f"Shared library {so_path} is missing required JNI exports: {missing}")
-    print(f"Verified all {len(REQUIRED_JNI_SYMBOLS)} JNI symbols exported in {so_path.name}", flush=True)
+    proc_all = subprocess.run(
+        [nm_bin, "-D", str(so_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=True,
+    )
+    all_dynsyms = set()
+    for line in proc_all.stdout.splitlines():
+        parts = line.split()
+        if parts:
+            all_dynsyms.add(parts[-1])
+    if "ANativeWindow_setBuffersGeometry" not in all_dynsyms:
+        emit_ci_error(
+            "Unpatched miniquad in .so",
+            "ANativeWindow_setBuffersGeometry not found in dynamic symbol table of liblooking_glass.so",
+        )
+        raise SystemExit(
+            f"Shared library {so_path} was linked without patched miniquad (missing ANativeWindow_setBuffersGeometry)"
+        )
+    print(
+        f"::notice title=JNI & EGL Verified::Verified all {len(REQUIRED_JNI_SYMBOLS)} JNI exports and ANativeWindow_setBuffersGeometry in {so_path.name}",
+        flush=True,
+    )
 
 
 def build_native_libraries(
@@ -646,6 +672,22 @@ def build_native_libraries(
         if target not in abi_map:
             raise SystemExit(f"Unsupported Android target: {target}")
         abi = abi_map[target]
+        target_dir = ROOT / "target" / target / profile
+        if target_dir.is_dir():
+            for pattern in [
+                "deps/*miniquad*",
+                "deps/*macroquad*",
+                "deps/*looking_glass*",
+                ".fingerprint/miniquad-*",
+                ".fingerprint/macroquad-*",
+                ".fingerprint/looking-glass-*",
+                "liblooking_glass.so",
+            ]:
+                for stale in target_dir.glob(pattern):
+                    if stale.is_dir():
+                        shutil.rmtree(stale, ignore_errors=True)
+                    else:
+                        stale.unlink(missing_ok=True)
         env = configure_ndk_env(ndk_root, target, min_sdk)
         cmd = ["cargo"]
         if has_cargo_ndk:
