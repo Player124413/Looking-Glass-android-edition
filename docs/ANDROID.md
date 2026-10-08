@@ -9,17 +9,16 @@ Looking Glass does **not** include any proprietary *American McGee's Alice* game
 ## 1. Installing & Supplying Game Data (`base/*.pk3`)
 
 1. Install the Looking Glass Android APK (`com.lookingglass.alice`) on a 64-bit Android 8.0+ (API 26+) device with OpenGL ES 2.0+ support.
-2. Launch **Looking Glass** once. On first launch, the activity provisions its external storage folders (`base/` and `saves/`) and displays the interactive **Android Data Setup** screen if no PK3 archives are found yet.
-3. Copy your `pak0_low.pk3` (and `pak1_large.pk3`, `pak2_medium.pk3`, `pak3.pk3`, `pak4_english.pk3` if present) into:
-   ```text
-   /sdcard/Android/data/com.lookingglass.alice/files/base/
-   ```
-   Using `adb` from a computer:
+2. Launch **Looking Glass**. When no PK3 archives are mounted yet, the built-in **Game Data Launcher** opens automatically with four convenient ways to import your game without needing a PC:
+   - **Choose Game Folder**: Opens Android's native system folder chooser (`ACTION_OPEN_DOCUMENT_TREE`). Pick your downloaded `Alice` or `base/` folder anywhere on your phone, SD card, or USB drive, and Looking Glass automatically copies all `*.pk3` files into `/sdcard/Android/data/com.lookingglass.alice/files/base/` and launches the game.
+   - **Select PK3 / ZIP**: Opens Android's native file chooser (`ACTION_OPEN_DOCUMENT`) so you can select `pak0.pk3`..`pak4_english.pk3` or a `.zip` archive of the game; Looking Glass copies or extracts the `.pk3` archives directly into `base/`.
+   - **Browse Folders**: Opens the built-in directory browser inside the launcher window so you can navigate folders and tap **Copy From This Folder**.
+   - **Auto-Import Downloads**: Automatically scans `Download`, `Documents`, and `LookingGlass` folders on your device and copies any discovered `.pk3` archives into `base/`.
+3. You can also copy `pak0.pk3`..`pak4_english.pk3` manually or via `adb`:
    ```bash
    adb push /path/to/Alice/base/*.pk3 /sdcard/Android/data/com.lookingglass.alice/files/base/
    ```
-   Looking Glass also checks fallback paths including `/sdcard/LookingGlass/base` and `/storage/emulated/0/LookingGlass/base`, or the `LOOKING_GLASS_DATA` environment variable.
-4. Tap **Retry Scan** on the setup screen (or relaunch the app) to start playing.
+   Then tap **Scan & Start** on the launcher screen to start playing.
 
 ---
 

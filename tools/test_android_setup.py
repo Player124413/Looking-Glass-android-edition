@@ -59,6 +59,9 @@ class AndroidPortTest(unittest.TestCase):
             self.assertIn("LOOKING_GLASS_ANDROID_STORAGE", java_src)
             self.assertIn("SYSTEM_UI_FLAG_IMMERSIVE_STICKY", java_src)
             self.assertIn("QuadNative.surfaceOnKeyDown(KeyEvent.KEYCODE_BACK);", java_src)
+            self.assertIn("public void openFolderPicker()", java_src)
+            self.assertIn("public void openFilePicker()", java_src)
+            self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", java_src)
 
             quad_src = files["quad_native"].read_text(encoding="utf-8")
             self.assertIn("package quad_native;", quad_src)
