@@ -559,7 +559,7 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
         "    for marker in ['try_borrow_mut()', 'ANativeWindow_setBuffersGeometry', 'let surface = loop {', 'stack_size(16 * 1024 * 1024)']:\n"
         "        assert marker in txt, f'Failed to patch miniquad android.rs: missing {marker}'\n"
         "    android_rs.write_text(txt, encoding='utf-8')\n"
-        "gl_rs = src_dir / 'graphics' / 'gl.rs'\n"
+        "gl_rs = lib_rs.parent / 'graphics' / 'gl.rs'\n"
         "if gl_rs.is_file():\n"
         "    txt = gl_rs.read_text(encoding='utf-8').replace('\\r\\n', '\\n')\n"
         "    old_buf = (\n"
