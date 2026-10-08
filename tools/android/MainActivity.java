@@ -891,19 +891,21 @@ public class MainActivity extends Activity {
         }
         try {
             final boolean ru = isRussianLocale();
+            ScrollView scroll = new ScrollView(this);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(44, 36, 44, 32);
+            card.setPadding(36, 26, 36, 26);
             GradientDrawable cardBg = new GradientDrawable();
             cardBg.setColor(Color.rgb(28, 22, 36));
             cardBg.setCornerRadius(22f);
             cardBg.setStroke(3, Color.rgb(201, 169, 124));
             card.setBackground(cardBg);
+            scroll.addView(card);
 
             TextView title = new TextView(this);
             title.setText("Looking Glass — Android Port");
             title.setTextColor(Color.rgb(245, 203, 167));
-            title.setTextSize(20f);
+            title.setTextSize(19f);
             title.setTypeface(Typeface.DEFAULT_BOLD);
             title.setGravity(Gravity.CENTER_HORIZONTAL);
             card.addView(title);
@@ -915,31 +917,41 @@ public class MainActivity extends Activity {
                             ? ("Версия v" + BUILD_VERSION + " (" + sha + ")")
                             : ("Version v" + BUILD_VERSION + " (" + sha + ")"));
             subtitle.setTextColor(Color.rgb(180, 165, 148));
-            subtitle.setTextSize(12.5f);
+            subtitle.setTextSize(12f);
             subtitle.setGravity(Gravity.CENTER_HORIZONTAL);
-            subtitle.setPadding(0, 4, 0, 18);
+            subtitle.setPadding(0, 2, 0, 12);
             card.addView(subtitle);
 
             TextView message = new TextView(this);
             message.setText(buildLinkifiedCreditsText(ru));
             message.setTextColor(Color.rgb(243, 229, 200));
             message.setHighlightColor(Color.TRANSPARENT);
-            message.setTextSize(15.5f);
-            message.setLineSpacing(6f, 1.08f);
+            message.setTextSize(14.5f);
+            message.setLineSpacing(4f, 1.06f);
             message.setMovementMethod(LinkMovementMethod.getInstance());
             card.addView(message);
 
-            LinearLayout.LayoutParams btnParams =
+            LinearLayout row1 = new LinearLayout(this);
+            row1.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams rowParams =
                     new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT);
-            btnParams.setMargins(0, 14, 0, 0);
+            rowParams.setMargins(0, 14, 0, 0);
+
+            LinearLayout.LayoutParams leftColParams =
+                    new LinearLayout.LayoutParams(
+                            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            leftColParams.setMargins(0, 0, 8, 0);
+
+            LinearLayout.LayoutParams rightColParams =
+                    new LinearLayout.LayoutParams(
+                            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            rightColParams.setMargins(8, 0, 0, 0);
 
             Button tgBtn =
                     createStyledDialogButton(
-                            ru
-                                    ? "Telegram: https://t.me/player1444ports"
-                                    : "Telegram: https://t.me/player1444ports",
+                            "Telegram: @player1444ports",
                             Color.rgb(27, 79, 114),
                             Color.rgb(133, 193, 233),
                             new View.OnClickListener() {
@@ -948,13 +960,11 @@ public class MainActivity extends Activity {
                                     openExternalUrl(TELEGRAM_URL);
                                 }
                             });
-            card.addView(tgBtn, btnParams);
+            row1.addView(tgBtn, leftColParams);
 
             Button ghBtn =
                     createStyledDialogButton(
-                            ru
-                                    ? "GitHub: skulitom/LookingGlass"
-                                    : "GitHub: skulitom/LookingGlass",
+                            "GitHub: skulitom/LookingGlass",
                             Color.rgb(74, 35, 90),
                             Color.rgb(187, 143, 206),
                             new View.OnClickListener() {
@@ -963,14 +973,18 @@ public class MainActivity extends Activity {
                                     openExternalUrl(ORIGINAL_REPO_URL);
                                 }
                             });
-            card.addView(ghBtn, btnParams);
+            row1.addView(ghBtn, rightColParams);
+            card.addView(row1, rowParams);
 
             final AlertDialog dialog =
-                    new AlertDialog.Builder(this).setView(card).setCancelable(true).create();
+                    new AlertDialog.Builder(this).setView(scroll).setCancelable(true).create();
+
+            LinearLayout row2 = new LinearLayout(this);
+            row2.setOrientation(LinearLayout.HORIZONTAL);
 
             Button updateBtn =
                     createStyledDialogButton(
-                            ru ? "Проверить обновления (Check for Updates)" : "Check for Updates",
+                            ru ? "Проверить обновления" : "Check for Updates",
                             Color.rgb(125, 90, 43),
                             Color.rgb(245, 203, 167),
                             new View.OnClickListener() {
@@ -979,11 +993,11 @@ public class MainActivity extends Activity {
                                     checkForUpdates();
                                 }
                             });
-            card.addView(updateBtn, btnParams);
+            row2.addView(updateBtn, leftColParams);
 
-            Button closeBtn =
+            Button okBtn =
                     createStyledDialogButton(
-                            ru ? "Продолжить" : "Continue",
+                            "OK",
                             Color.rgb(39, 110, 54),
                             Color.rgb(130, 224, 170),
                             new View.OnClickListener() {
@@ -993,7 +1007,9 @@ public class MainActivity extends Activity {
                                     applyFullscreenFlags();
                                 }
                             });
-            card.addView(closeBtn, btnParams);
+            okBtn.setTypeface(Typeface.DEFAULT_BOLD);
+            row2.addView(okBtn, rightColParams);
+            card.addView(row2, rowParams);
 
             dialog.setOnDismissListener(
                     new DialogInterface.OnDismissListener() {
@@ -1236,14 +1252,16 @@ public class MainActivity extends Activity {
                                 : ("Up to date (" + installedSha + ")."));
             }
 
+            ScrollView scroll = new ScrollView(this);
             LinearLayout card = new LinearLayout(this);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(44, 36, 44, 32);
+            card.setPadding(36, 26, 36, 26);
             GradientDrawable cardBg = new GradientDrawable();
             cardBg.setColor(Color.rgb(28, 22, 36));
             cardBg.setCornerRadius(22f);
             cardBg.setStroke(3, Color.rgb(201, 169, 124));
             card.setBackground(cardBg);
+            scroll.addView(card);
 
             TextView title = new TextView(this);
             if (error != null) {
@@ -1254,16 +1272,16 @@ public class MainActivity extends Activity {
                 title.setText(ru ? "Установлена последняя версия" : "Up to Date");
             }
             title.setTextColor(Color.rgb(245, 203, 167));
-            title.setTextSize(20f);
+            title.setTextSize(19f);
             title.setTypeface(Typeface.DEFAULT_BOLD);
             title.setGravity(Gravity.CENTER_HORIZONTAL);
             card.addView(title);
 
             TextView body = new TextView(this);
-            body.setPadding(0, 18, 0, 12);
+            body.setPadding(0, 12, 0, 10);
             body.setTextColor(Color.rgb(243, 229, 200));
-            body.setTextSize(15f);
-            body.setLineSpacing(5f, 1.08f);
+            body.setTextSize(14.5f);
+            body.setLineSpacing(4f, 1.06f);
 
             if (error != null) {
                 body.setText(
@@ -1341,7 +1359,7 @@ public class MainActivity extends Activity {
                     new LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT);
-            btnParams.setMargins(0, 14, 0, 0);
+            btnParams.setMargins(0, 12, 0, 0);
 
             if (apkUrl != null && !apkUrl.isEmpty()) {
                 Button dlBtn =
@@ -1358,11 +1376,20 @@ public class MainActivity extends Activity {
                 card.addView(dlBtn, btnParams);
             }
 
+            LinearLayout rowLinks = new LinearLayout(this);
+            rowLinks.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams leftColParams =
+                    new LinearLayout.LayoutParams(
+                            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            leftColParams.setMargins(0, 0, 8, 0);
+            LinearLayout.LayoutParams rightColParams =
+                    new LinearLayout.LayoutParams(
+                            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            rightColParams.setMargins(8, 0, 0, 0);
+
             Button tgBtn =
                     createStyledDialogButton(
-                            ru
-                                    ? "Канал обновлений: t.me/player1444ports"
-                                    : "Updates Channel: t.me/player1444ports",
+                            "Telegram: @player1444ports",
                             Color.rgb(27, 79, 114),
                             Color.rgb(133, 193, 233),
                             new View.OnClickListener() {
@@ -1371,11 +1398,11 @@ public class MainActivity extends Activity {
                                     openExternalUrl(TELEGRAM_URL);
                                 }
                             });
-            card.addView(tgBtn, btnParams);
+            rowLinks.addView(tgBtn, leftColParams);
 
             Button ghBtn =
                     createStyledDialogButton(
-                            ru ? "Открыть страницу сборок GitHub" : "Open GitHub Builds / Releases",
+                            ru ? "GitHub (Сборки)" : "GitHub (Builds)",
                             Color.rgb(74, 35, 90),
                             Color.rgb(187, 143, 206),
                             new View.OnClickListener() {
@@ -1384,16 +1411,17 @@ public class MainActivity extends Activity {
                                     openExternalUrl(htmlUrl);
                                 }
                             });
-            card.addView(ghBtn, btnParams);
+            rowLinks.addView(ghBtn, rightColParams);
+            card.addView(rowLinks, btnParams);
 
             final AlertDialog dialog =
-                    new AlertDialog.Builder(this).setView(card).setCancelable(true).create();
+                    new AlertDialog.Builder(this).setView(scroll).setCancelable(true).create();
 
             Button okBtn =
                     createStyledDialogButton(
-                            ru ? "Закрыть" : "Close",
-                            Color.rgb(52, 42, 56),
-                            Color.rgb(201, 169, 124),
+                            "OK",
+                            Color.rgb(39, 110, 54),
+                            Color.rgb(130, 224, 170),
                             new View.OnClickListener() {
                                 @Override
                                 public void onClick(View v) {
@@ -1401,6 +1429,7 @@ public class MainActivity extends Activity {
                                     applyFullscreenFlags();
                                 }
                             });
+            okBtn.setTypeface(Typeface.DEFAULT_BOLD);
             card.addView(okBtn, btnParams);
 
             dialog.setOnDismissListener(
