@@ -3412,7 +3412,11 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             ui.toast(&notice, 74.);
         }
         show_mouse(!focused);
-        if focused && (menu || inventory_menu || paused) && !input.using_touch {
+        if focused
+            && (menu || inventory_menu || paused)
+            && !input.using_touch
+            && !crate::android::is_android()
+        {
             ui.cursor();
         }
         console.draw(&ui);

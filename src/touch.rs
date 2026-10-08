@@ -91,6 +91,94 @@ pub struct TouchContext {
     pub can_interact: bool,
 }
 
+/// Per-button / per-joystick layout customization persisted in `Preferences::touch_layout`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TouchControlCustom {
+    /// Horizontal offset as a fraction of screen width (-1.0 .. +1.0).
+    pub offset_x: f32,
+    /// Vertical offset as a fraction of screen height (-1.0 .. +1.0).
+    pub offset_y: f32,
+    /// Individual size multiplier for this control (0.4 .. 2.2).
+    pub scale: f32,
+    /// Individual opacity multiplier for this control (0.1 .. 1.0).
+    pub opacity: f32,
+    /// Whether this control is visible and active on the touch HUD.
+    pub visible: bool,
+}
+
+impl Default for TouchControlCustom {
+    fn default() -> Self {
+        Self {
+            offset_x: 0.0,
+            offset_y: 0.0,
+            scale: 1.0,
+            opacity: 1.0,
+            visible: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchElement {
+    Stick,
+    Button(TouchButton),
+}
+
+impl TouchElement {
+    pub const ALL: [Self; 18] = [
+        Self::Stick,
+        Self::Button(TouchButton::PrimaryAttack),
+        Self::Button(TouchButton::AlternateAttack),
+        Self::Button(TouchButton::Jump),
+        Self::Button(TouchButton::Interact),
+        Self::Button(TouchButton::Dive),
+        Self::Button(TouchButton::RunLock),
+        Self::Button(TouchButton::Hint),
+        Self::Button(TouchButton::PrevToy),
+        Self::Button(TouchButton::Inventory),
+        Self::Button(TouchButton::NextToy),
+        Self::Button(TouchButton::Menu),
+        Self::Button(TouchButton::Chapters),
+        Self::Button(TouchButton::ViewToggle),
+        Self::Button(TouchButton::Help),
+        Self::Button(TouchButton::Recover),
+        Self::Button(TouchButton::QuickSave),
+        Self::Button(TouchButton::QuickLoad),
+    ];
+
+    pub const fn config_key(self) -> &'static str {
+        match self {
+            Self::Stick => "stick",
+            Self::Button(b) => b.config_key(),
+        }
+    }
+
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Stick => "Movement Joystick (STICK)",
+            Self::Button(TouchButton::PrimaryAttack) => "Primary Attack (ATK 1)",
+            Self::Button(TouchButton::AlternateAttack) => "Alternate Attack (ATK 2)",
+            Self::Button(TouchButton::Jump) => "Jump / Climb / Rise (JUMP)",
+            Self::Button(TouchButton::Interact) => "Interact / Use (USE)",
+            Self::Button(TouchButton::Dive) => "Crouch / Dive (CROUCH)",
+            Self::Button(TouchButton::RunLock) => "Run / Sprint Lock (RUN)",
+            Self::Button(TouchButton::Hint) => "Cheshire Cat Hint (CAT)",
+            Self::Button(TouchButton::PrevToy) => "Previous Toy (< TOY)",
+            Self::Button(TouchButton::Inventory) => "Toy Inventory (TOYS)",
+            Self::Button(TouchButton::NextToy) => "Next Toy (TOY >)",
+            Self::Button(TouchButton::Menu) => "Pause / Main Menu (MENU)",
+            Self::Button(TouchButton::Chapters) => "Chapters / Map (MAP)",
+            Self::Button(TouchButton::ViewToggle) => "Camera View Toggle (VIEW)",
+            Self::Button(TouchButton::Help) => "Help Overlay (HELP)",
+            Self::Button(TouchButton::Recover) => "Safe Footing (FOOT)",
+            Self::Button(TouchButton::QuickSave) => "Quick Save (SAVE)",
+            Self::Button(TouchButton::QuickLoad) => "Quick Load (LOAD)",
+            Self::Button(TouchButton::SkipScene) => "Skip Cutscene (SKIP)",
+        }
+    }
+}
+
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TouchButton {
@@ -117,6 +205,29 @@ pub enum TouchButton {
 impl TouchButton {
     const fn bit(self) -> u32 {
         1 << (self as u8)
+    }
+
+    pub const fn config_key(self) -> &'static str {
+        match self {
+            Self::PrimaryAttack => "atk1",
+            Self::AlternateAttack => "atk2",
+            Self::Jump => "jump",
+            Self::Interact => "use",
+            Self::Dive => "dive",
+            Self::RunLock => "run",
+            Self::Hint => "hint",
+            Self::PrevToy => "prev_toy",
+            Self::NextToy => "next_toy",
+            Self::Inventory => "toys",
+            Self::ViewToggle => "view",
+            Self::Help => "help",
+            Self::Recover => "foot",
+            Self::QuickSave => "save",
+            Self::QuickLoad => "load",
+            Self::SkipScene => "skip",
+            Self::Menu => "menu",
+            Self::Chapters => "map",
+        }
     }
 
     fn allows_look_drag(self) -> bool {
@@ -158,6 +269,9 @@ struct ButtonRegion {
     rect: Option<Rect>,
     label: &'static str,
     highlight: bool,
+    opacity: f32,
+    visible: bool,
+    modal: bool,
 }
 
 impl ButtonRegion {
@@ -175,6 +289,9 @@ impl ButtonRegion {
             rect: None,
             label,
             highlight,
+            opacity: 1.0,
+            visible: true,
+            modal: false,
         }
     }
 
@@ -186,6 +303,41 @@ impl ButtonRegion {
             rect: Some(rect),
             label,
             highlight,
+            opacity: 1.0,
+            visible: true,
+            modal: false,
+        }
+    }
+
+    fn pill_modal(button: TouchButton, rect: Rect, label: &'static str, highlight: bool) -> Self {
+        let mut s = Self::pill(button, rect, label, highlight);
+        s.modal = true;
+        s
+    }
+
+    fn apply_custom(&mut self, prefs: &Preferences, w: f32, h: f32) {
+        if self.modal {
+            return;
+        }
+        let custom = prefs.touch_control(self.button.config_key());
+        let scale = custom.scale.clamp(0.4, 2.2);
+        self.opacity = custom.opacity.clamp(0.1, 1.0);
+        self.visible = custom.visible;
+        let shift = vec2(custom.offset_x * w, custom.offset_y * h);
+        if let Some(r) = self.rect {
+            let nw = r.w * scale;
+            let nh = r.h * scale;
+            let cx = (r.center().x + shift.x).clamp(nw * 0.5 + 4., (w - nw * 0.5 - 4.).max(nw * 0.5 + 4.));
+            let cy = (r.center().y + shift.y).clamp(nh * 0.5 + 4., (h - nh * 0.5 - 4.).max(nh * 0.5 + 4.));
+            self.center = vec2(cx, cy);
+            self.radius = nw.max(nh) * 0.5;
+            self.rect = Some(Rect::new(cx - nw * 0.5, cy - nh * 0.5, nw, nh));
+        } else {
+            let nr = self.radius * scale;
+            let cx = (self.center.x + shift.x).clamp(nr + 4., (w - nr - 4.).max(nr + 4.));
+            let cy = (self.center.y + shift.y).clamp(nr + 4., (h - nr - 4.).max(nr + 4.));
+            self.center = vec2(cx, cy);
+            self.radius = nr;
         }
     }
 
@@ -203,6 +355,8 @@ struct Layout {
     scale: f32,
     stick_default: Vec2,
     stick_radius: f32,
+    stick_opacity: f32,
+    stick_visible: bool,
     left_handed: bool,
     screen: Vec2,
     buttons: Vec<ButtonRegion>,
@@ -223,8 +377,20 @@ impl Layout {
             }
         };
 
-        let stick_radius = 68. * s;
-        let stick_default = vec2(mirror_x(132. * s), h - 136. * s);
+        let stick_custom = prefs.touch_control("stick");
+        let stick_radius = 68. * s * stick_custom.scale.clamp(0.4, 2.2);
+        let raw_stick = vec2(mirror_x(132. * s), h - 136. * s)
+            + vec2(stick_custom.offset_x * w, stick_custom.offset_y * h);
+        let stick_default = vec2(
+            raw_stick
+                .x
+                .clamp(stick_radius + 8., (w - stick_radius - 8.).max(stick_radius + 8.)),
+            raw_stick
+                .y
+                .clamp(stick_radius + 8., (h - stick_radius - 8.).max(stick_radius + 8.)),
+        );
+        let stick_opacity = stick_custom.opacity.clamp(0.1, 1.0);
+        let stick_visible = stick_custom.visible;
         let mut buttons = Vec::with_capacity(18);
 
         // Top utility bar (leaves top-center clear for boss health meters).
@@ -272,7 +438,7 @@ impl Layout {
         }
 
         if ctx.cinematic_active {
-            buttons.push(ButtonRegion::pill(
+            buttons.push(ButtonRegion::pill_modal(
                 TouchButton::SkipScene,
                 Rect::new(w - 196. * s, 58. * s, 178. * s, 38. * s),
                 "HOLD TO SKIP",
@@ -281,7 +447,10 @@ impl Layout {
         }
 
         if !ctx.alive {
-            buttons.push(ButtonRegion::pill(
+            for b in &mut buttons {
+                b.apply_custom(prefs, w, h);
+            }
+            buttons.push(ButtonRegion::pill_modal(
                 TouchButton::Recover,
                 Rect::new((w - 220. * s) * 0.5, h * 0.34 + 156. * s, 220. * s, 44. * s),
                 "TAP TO RETRY",
@@ -291,6 +460,8 @@ impl Layout {
                 scale: s,
                 stick_default,
                 stick_radius,
+                stick_opacity,
+                stick_visible,
                 left_handed,
                 screen: vec2(w, h),
                 buttons,
@@ -298,7 +469,10 @@ impl Layout {
         }
 
         if ctx.inventory_open {
-            buttons.push(ButtonRegion::pill(
+            for b in &mut buttons {
+                b.apply_custom(prefs, w, h);
+            }
+            buttons.push(ButtonRegion::pill_modal(
                 TouchButton::Inventory,
                 Rect::new((w - 180. * s) * 0.5, h - 56. * s, 180. * s, 40. * s),
                 "CLOSE TOYS",
@@ -308,6 +482,8 @@ impl Layout {
                 scale: s,
                 stick_default,
                 stick_radius,
+                stick_opacity,
+                stick_visible,
                 left_handed,
                 screen: vec2(w, h),
                 buttons,
@@ -413,10 +589,16 @@ impl Layout {
             false,
         ));
 
+        for b in &mut buttons {
+            b.apply_custom(prefs, w, h);
+        }
+
         Self {
             scale: s,
             stick_default,
             stick_radius,
+            stick_opacity,
+            stick_visible,
             left_handed,
             screen: vec2(w, h),
             buttons,
@@ -427,11 +609,27 @@ impl Layout {
         self.buttons
             .iter()
             .rev()
-            .find(|b| b.contains(p))
+            .find(|b| b.visible && b.contains(p))
             .map(|b| b.button)
     }
 
+    fn hit_editor_element(&self, p: Vec2) -> Option<TouchElement> {
+        if let Some(b) = self.buttons.iter().rev().find(|b| !b.modal && b.contains(p)) {
+            return Some(TouchElement::Button(b.button));
+        }
+        if self.stick_default.distance_squared(p) <= (self.stick_radius * 1.08).powi(2) {
+            return Some(TouchElement::Stick);
+        }
+        None
+    }
+
     fn in_stick_zone(&self, p: Vec2) -> bool {
+        if !self.stick_visible {
+            return false;
+        }
+        if self.stick_default.distance_squared(p) <= (self.stick_radius * 1.65).powi(2) {
+            return true;
+        }
         let on_move_side = if self.left_handed {
             p.x > self.screen.x * 0.56
         } else {
@@ -702,8 +900,16 @@ impl TouchState {
         let highlight_border = Color::new(0.96, 0.82, 0.46, 0.95 * alpha);
         let text_color = Color::new(0.95, 0.90, 0.80, 0.92 * alpha);
 
-        // Draw virtual movement stick when alive and inventory is closed.
-        if self.context.alive && !self.context.inventory_open && !self.context.paused {
+        // Draw virtual movement stick when alive, visible, and inventory is closed.
+        if layout.stick_visible
+            && self.context.alive
+            && !self.context.inventory_open
+            && !self.context.paused
+        {
+            let sa = alpha * layout.stick_opacity;
+            let stick_base = Color::new(0.11, 0.08, 0.13, 0.58 * sa);
+            let stick_active = Color::new(0.58, 0.16, 0.15, 0.82 * sa);
+            let stick_border = Color::new(0.78, 0.64, 0.44, 0.78 * sa);
             let center = if self.stick_touch.is_some() {
                 self.stick_origin
             } else {
@@ -715,45 +921,50 @@ impl TouchState {
                 center
             };
             let r = layout.stick_radius;
-            draw_circle(center.x, center.y, r, base_fill);
-            draw_circle_lines(center.x, center.y, r, 2. * s, border);
+            draw_circle(center.x, center.y, r, stick_base);
+            draw_circle_lines(center.x, center.y, r, 2. * s, stick_border);
             draw_circle_lines(
                 center.x,
                 center.y,
                 r * STICK_SPRINT_RING,
                 1. * s,
-                Color::new(0.78, 0.64, 0.44, 0.28 * alpha),
+                Color::new(0.78, 0.64, 0.44, 0.28 * sa),
             );
-            let knob_r = 26. * s;
+            let knob_r = (r * 0.38).max(16. * s);
             draw_circle(
                 knob.x,
                 knob.y,
                 knob_r,
                 if self.stick_touch.is_some() {
-                    active_fill
+                    stick_active
                 } else {
-                    Color::new(0.26, 0.19, 0.24, 0.72 * alpha)
+                    Color::new(0.26, 0.19, 0.24, 0.72 * sa)
                 },
             );
-            draw_circle_lines(knob.x, knob.y, knob_r, 2. * s, border);
+            draw_circle_lines(knob.x, knob.y, knob_r, 2. * s, stick_border);
         }
 
         // Draw buttons.
         for b in &layout.buttons {
+            if !b.visible {
+                continue;
+            }
+            let ba = alpha * b.opacity;
             let held = self.down & b.button.bit() != 0
                 || (b.button == TouchButton::RunLock && self.sprint_locked);
             let fill = if held {
-                active_fill
+                Color::new(0.58, 0.16, 0.15, 0.82 * ba)
             } else if b.highlight {
-                highlight_fill
+                Color::new(0.36, 0.24, 0.12, 0.72 * ba)
             } else {
-                base_fill
+                Color::new(0.11, 0.08, 0.13, 0.58 * ba)
             };
             let ring = if held || b.highlight {
-                highlight_border
+                Color::new(0.96, 0.82, 0.46, 0.95 * ba)
             } else {
-                border
+                Color::new(0.78, 0.64, 0.44, 0.78 * ba)
             };
+            let btn_text = Color::new(0.95, 0.90, 0.80, 0.92 * ba);
             if let Some(rect) = b.rect {
                 draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
                 draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 2. * s, ring);
@@ -761,7 +972,7 @@ impl TouchState {
                     b.label,
                     Rect::new(rect.x + 4. * s, rect.y + 4. * s, rect.w - 8. * s, rect.h - 8. * s),
                     (16. * s).clamp(11., 28.),
-                    text_color,
+                    btn_text,
                 );
             } else {
                 draw_circle(b.center.x, b.center.y, b.radius, fill);
@@ -772,10 +983,474 @@ impl TouchState {
                     b.label,
                     Rect::new(b.center.x - w * 0.5, b.center.y - h * 0.5, w, h),
                     (16.5 * s).clamp(11., 28.),
-                    text_color,
+                    btn_text,
                 );
             }
         }
+    }
+}
+
+/// Interactive visual drag-and-drop Touch Controls Studio used in the Android Launcher.
+/// Allows moving buttons and the virtual joystick, resizing individual controls,
+/// toggling per-control visibility and opacity, and disabling touch controls for gamepad play.
+pub struct TouchEditor {
+    pub selected: TouchElement,
+    dragging: bool,
+    drag_last: Vec2,
+    pub status: String,
+}
+
+impl Default for TouchEditor {
+    fn default() -> Self {
+        Self {
+            selected: TouchElement::Button(TouchButton::PrimaryAttack),
+            dragging: false,
+            drag_last: Vec2::ZERO,
+            status: "Drag any button or joystick to move. Tap to select & adjust size/visibility."
+                .into(),
+        }
+    }
+}
+
+impl TouchEditor {
+    /// Draw and update the full-screen Touch Controls Studio.
+    /// Returns `true` when the user taps `Done & Save` to return to the Launcher.
+    pub fn update_and_draw(&mut self, prefs: &mut Preferences) -> bool {
+        let (w, h) = (screen_width().max(320.), screen_height().max(240.));
+        let screen = vec2(w, h);
+        let s = (h / 720.).clamp(0.65, 2.2).min(w / 960.);
+        clear_background(Color::from_hex(0x110e15));
+
+        // Draw subtle alignment grid & center axes.
+        let grid_col = Color::new(0.45, 0.36, 0.52, 0.14);
+        let axis_col = Color::new(0.78, 0.62, 0.42, 0.26);
+        let step = (64. * s).max(24.);
+        let mut gx = step;
+        while gx < w {
+            draw_line(gx, 0., gx, h, 1., grid_col);
+            gx += step;
+        }
+        let mut gy = step;
+        while gy < h {
+            draw_line(0., gy, w, gy, 1., grid_col);
+            gy += step;
+        }
+        draw_line(w * 0.5, 0., w * 0.5, h, 1.5, axis_col);
+        draw_line(0., h * 0.5, w, h * 0.5, 1.5, axis_col);
+
+        let ctx = TouchContext {
+            in_gameplay: true,
+            alive: true,
+            ..Default::default()
+        };
+        let layout = Layout::build(screen, prefs, ctx);
+
+        // Inspector panel positioned in center-upper area so top bar, bottom bar, left stick,
+        // and right action cluster remain completely unobstructed.
+        let panel_w = (580. * s).min(w - 32.);
+        let panel_h = (318. * s).min(h - 110.);
+        let panel = Rect::new((w - panel_w) * 0.5, (h - panel_h) * 0.42, panel_w, panel_h);
+
+        let (pointer_pos, pointer_pressed, pointer_down) = pointer_state();
+        let on_panel = panel.contains(pointer_pos) && !self.dragging;
+
+        // Handle direct canvas drag-and-drop when touching outside the inspector panel.
+        if pointer_pressed && !on_panel {
+            if let Some(elem) = layout.hit_editor_element(pointer_pos) {
+                self.selected = elem;
+                self.dragging = true;
+                self.drag_last = pointer_pos;
+                self.status = format!("Selected: {}", elem.title());
+            }
+        } else if pointer_down && self.dragging {
+            let delta = pointer_pos - self.drag_last;
+            self.drag_last = pointer_pos;
+            if delta.length_squared() > 0.01 && delta.is_finite() {
+                let key = self.selected.config_key();
+                let custom = prefs.touch_control_mut(key);
+                custom.offset_x = (custom.offset_x + delta.x / w).clamp(-0.92, 0.92);
+                custom.offset_y = (custom.offset_y + delta.y / h).clamp(-0.92, 0.92);
+            }
+        } else if !pointer_down && self.dragging {
+            self.dragging = false;
+            let _ = prefs.save();
+        }
+
+        // Rebuild layout after any drag update so visuals are 100% immediate.
+        let layout = Layout::build(screen, prefs, ctx);
+        let global_alpha = prefs.touch_opacity.clamp(0.2, 1.0);
+
+        // 1. Draw the Virtual Joystick on the editor canvas.
+        {
+            let is_sel = self.selected == TouchElement::Stick;
+            let vis = layout.stick_visible && prefs.touch_mode != TouchMode::Off;
+            let sa = if vis {
+                global_alpha * layout.stick_opacity
+            } else {
+                0.28
+            };
+            let fill = if vis {
+                Color::new(0.14, 0.10, 0.18, 0.68 * sa)
+            } else {
+                Color::new(0.28, 0.10, 0.12, 0.35)
+            };
+            let ring = if is_sel {
+                Color::from_hex(0x5dade2)
+            } else if vis {
+                Color::new(0.78, 0.64, 0.44, 0.85 * sa)
+            } else {
+                Color::from_hex(0xc0392b)
+            };
+            let c = layout.stick_default;
+            let r = layout.stick_radius;
+            draw_circle(c.x, c.y, r, fill);
+            draw_circle_lines(c.x, c.y, r, if is_sel { 3.5 * s } else { 2. * s }, ring);
+            let knob_r = (r * 0.38).max(16. * s);
+            draw_circle(c.x, c.y, knob_r, Color::new(0.32, 0.24, 0.34, 0.78 * sa));
+            draw_circle_lines(c.x, c.y, knob_r, 2. * s, ring);
+            let tag = if !layout.stick_visible {
+                "STICK [HIDDEN]"
+            } else {
+                "STICK"
+            };
+            let fs = (16. * s).round();
+            let tw = measure_text(tag, None, fs as u16, 1.0).width;
+            draw_text(tag, c.x - tw * 0.5, c.y + 6. * s, fs, WHITE);
+        }
+
+        // 2. Draw all Touch Buttons on the editor canvas.
+        for b in &layout.buttons {
+            if b.modal {
+                continue;
+            }
+            let is_sel = self.selected == TouchElement::Button(b.button);
+            let vis = b.visible && prefs.touch_mode != TouchMode::Off;
+            let ba = if vis { global_alpha * b.opacity } else { 0.30 };
+            let fill = if vis {
+                Color::new(0.14, 0.10, 0.18, 0.72 * ba)
+            } else {
+                Color::new(0.30, 0.10, 0.12, 0.36)
+            };
+            let ring = if is_sel {
+                Color::from_hex(0x5dade2)
+            } else if vis {
+                Color::new(0.84, 0.68, 0.46, 0.88 * ba)
+            } else {
+                Color::from_hex(0xc0392b)
+            };
+            let label = if b.visible {
+                b.label.to_string()
+            } else {
+                format!("{} [OFF]", b.label)
+            };
+            let fs = (15. * s).clamp(11., 24.).round();
+            let tw = measure_text(&label, None, fs as u16, 1.0).width;
+            if let Some(rect) = b.rect {
+                draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
+                draw_rectangle_lines(
+                    rect.x,
+                    rect.y,
+                    rect.w,
+                    rect.h,
+                    if is_sel { 3.2 * s } else { 2. * s },
+                    ring,
+                );
+                draw_text(
+                    &label,
+                    rect.center().x - tw * 0.5,
+                    rect.center().y + fs * 0.34,
+                    fs,
+                    WHITE,
+                );
+            } else {
+                draw_circle(b.center.x, b.center.y, b.radius, fill);
+                draw_circle_lines(
+                    b.center.x,
+                    b.center.y,
+                    b.radius,
+                    if is_sel { 3.5 * s } else { 2.2 * s },
+                    ring,
+                );
+                draw_text(
+                    &label,
+                    b.center.x - tw * 0.5,
+                    b.center.y + fs * 0.34,
+                    fs,
+                    WHITE,
+                );
+            }
+        }
+
+        // 3. Draw Floating Inspector Panel (dimmed while actively dragging a button).
+        let panel_alpha = if self.dragging { 0.38 } else { 0.95 };
+        draw_rectangle(
+            panel.x,
+            panel.y,
+            panel.w,
+            panel.h,
+            Color::new(0.13, 0.10, 0.16, panel_alpha),
+        );
+        draw_rectangle_lines(
+            panel.x,
+            panel.y,
+            panel.w,
+            panel.h,
+            2. * s,
+            Color::new(0.79, 0.66, 0.49, panel_alpha),
+        );
+
+        let px = panel.x + 16. * s;
+        let mut py = panel.y + 26. * s;
+        draw_text(
+            "Touch Controls Studio (Drag buttons on screen)",
+            px,
+            py,
+            (20. * s).round(),
+            Color::new(0.95, 0.90, 0.78, panel_alpha),
+        );
+        py += 10. * s;
+
+        let click = (pointer_pressed && !self.dragging).then_some(pointer_pos);
+        let draw_btn = |rect: Rect, text: &str, fill_hex: u32, active: bool| {
+            let mut c = Color::from_hex(fill_hex);
+            c.a = panel_alpha;
+            draw_rectangle(rect.x, rect.y, rect.w, rect.h, c);
+            let mut border_c = Color::from_hex(if active { 0xf5cba7 } else { 0x8c6d46 });
+            border_c.a = panel_alpha;
+            draw_rectangle_lines(
+                rect.x,
+                rect.y,
+                rect.w,
+                rect.h,
+                if active { 2.6 * s } else { 1.4 * s },
+                border_c,
+            );
+            let fs = (16. * s).round();
+            let tw = measure_text(text, None, fs as u16, 1.0).width;
+            draw_text(
+                text,
+                rect.center().x - tw * 0.5,
+                rect.center().y + fs * 0.34,
+                fs,
+                Color::new(1., 1., 1., panel_alpha),
+            );
+        };
+
+        // Row 1: Touch Mode (Auto / Always On / OFF for Gamepad)
+        let row_h = 34. * s;
+        let mode_w = (panel.w - 32. * s - 16. * s) / 3.;
+        for (i, (mode, label)) in [
+            (TouchMode::Auto, "Touch: Auto"),
+            (TouchMode::On, "Touch: Always On"),
+            (TouchMode::Off, "Touch: OFF (Gamepad)"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let r = Rect::new(px + i as f32 * (mode_w + 8. * s), py, mode_w, row_h);
+            let active = prefs.touch_mode == mode;
+            let fill = if active {
+                if mode == TouchMode::Off {
+                    0x7b241c
+                } else {
+                    0x276e36
+                }
+            } else {
+                0x2b2233
+            };
+            draw_btn(r, label, fill, active);
+            if click.is_some_and(|p| r.contains(p)) {
+                prefs.touch_mode = mode;
+                let _ = prefs.save();
+                self.status = if mode == TouchMode::Off {
+                    "Touch controls DISABLED (Gamepad mode active).".into()
+                } else {
+                    format!("Touch mode set to {}.", mode.name())
+                };
+            }
+        }
+        py += row_h + 10. * s;
+
+        // Row 2: Selected Control Switcher (< Prev | Selected Name | Next >)
+        let prev_btn = Rect::new(px, py, 76. * s, row_h);
+        let next_btn = Rect::new(panel.right() - 16. * s - 76. * s, py, 76. * s, row_h);
+        let name_box = Rect::new(
+            prev_btn.right() + 8. * s,
+            py,
+            next_btn.x - prev_btn.right() - 16. * s,
+            row_h,
+        );
+        draw_btn(prev_btn, "< Prev", 0x354552, false);
+        draw_btn(next_btn, "Next >", 0x354552, false);
+        draw_btn(name_box, self.selected.title(), 0x241c2c, true);
+        if click.is_some_and(|p| prev_btn.contains(p)) {
+            let idx = TouchElement::ALL
+                .iter()
+                .position(|&e| e == self.selected)
+                .unwrap_or(0);
+            self.selected = TouchElement::ALL
+                [(idx + TouchElement::ALL.len() - 1) % TouchElement::ALL.len()];
+        } else if click.is_some_and(|p| next_btn.contains(p)) {
+            let idx = TouchElement::ALL
+                .iter()
+                .position(|&e| e == self.selected)
+                .unwrap_or(0);
+            self.selected = TouchElement::ALL[(idx + 1) % TouchElement::ALL.len()];
+        }
+        py += row_h + 10. * s;
+
+        // Row 3: Selected Control Visibility, Size, and Opacity
+        let sel_key = self.selected.config_key();
+        let sel_cfg = prefs.touch_control(sel_key);
+        let vis_btn = Rect::new(px, py, 148. * s, row_h);
+        draw_btn(
+            vis_btn,
+            if sel_cfg.visible {
+                "Visible: ON"
+            } else {
+                "Visible: HIDDEN"
+            },
+            if sel_cfg.visible { 0x276e36 } else { 0x7b241c },
+            true,
+        );
+        if click.is_some_and(|p| vis_btn.contains(p)) {
+            let c = prefs.touch_control_mut(sel_key);
+            c.visible = !c.visible;
+            let _ = prefs.save();
+        }
+
+        let size_minus = Rect::new(vis_btn.right() + 10. * s, py, 42. * s, row_h);
+        let size_label = Rect::new(size_minus.right() + 4. * s, py, 102. * s, row_h);
+        let size_plus = Rect::new(size_label.right() + 4. * s, py, 42. * s, row_h);
+        draw_btn(size_minus, "-", 0x4a354f, false);
+        draw_btn(
+            size_label,
+            &format!("Size {:.0}%", sel_cfg.scale * 100.),
+            0x241c2c,
+            false,
+        );
+        draw_btn(size_plus, "+", 0x4a354f, false);
+        if click.is_some_and(|p| size_minus.contains(p)) {
+            let c = prefs.touch_control_mut(sel_key);
+            c.scale = (c.scale - 0.1).clamp(0.4, 2.2);
+            let _ = prefs.save();
+        } else if click.is_some_and(|p| size_plus.contains(p)) {
+            let c = prefs.touch_control_mut(sel_key);
+            c.scale = (c.scale + 0.1).clamp(0.4, 2.2);
+            let _ = prefs.save();
+        }
+
+        let op_minus = Rect::new(size_plus.right() + 10. * s, py, 38. * s, row_h);
+        let op_label = Rect::new(op_minus.right() + 4. * s, py, 96. * s, row_h);
+        let op_plus = Rect::new(op_label.right() + 4. * s, py, 38. * s, row_h);
+        draw_btn(op_minus, "-", 0x354552, false);
+        draw_btn(
+            op_label,
+            &format!("Alpha {:.0}%", sel_cfg.opacity * 100.),
+            0x241c2c,
+            false,
+        );
+        draw_btn(op_plus, "+", 0x354552, false);
+        if click.is_some_and(|p| op_minus.contains(p)) {
+            let c = prefs.touch_control_mut(sel_key);
+            c.opacity = (c.opacity - 0.1).clamp(0.1, 1.0);
+            let _ = prefs.save();
+        } else if click.is_some_and(|p| op_plus.contains(p)) {
+            let c = prefs.touch_control_mut(sel_key);
+            c.opacity = (c.opacity + 0.1).clamp(0.1, 1.0);
+            let _ = prefs.save();
+        }
+        py += row_h + 10. * s;
+
+        // Row 4: Global Scale, Global Opacity, Left-Handed, Show All
+        let g_minus = Rect::new(px, py, 38. * s, row_h);
+        let g_label = Rect::new(g_minus.right() + 4. * s, py, 114. * s, row_h);
+        let g_plus = Rect::new(g_label.right() + 4. * s, py, 38. * s, row_h);
+        draw_btn(g_minus, "-", 0x4a354f, false);
+        draw_btn(
+            g_label,
+            &format!("All Size {:.0}%", prefs.touch_scale * 100.),
+            0x241c2c,
+            false,
+        );
+        draw_btn(g_plus, "+", 0x4a354f, false);
+        if click.is_some_and(|p| g_minus.contains(p)) {
+            prefs.touch_scale = (prefs.touch_scale - 0.1).clamp(0.6, 1.6);
+            let _ = prefs.save();
+        } else if click.is_some_and(|p| g_plus.contains(p)) {
+            prefs.touch_scale = (prefs.touch_scale + 0.1).clamp(0.6, 1.6);
+            let _ = prefs.save();
+        }
+
+        let lh_btn = Rect::new(g_plus.right() + 10. * s, py, 165. * s, row_h);
+        draw_btn(
+            lh_btn,
+            if prefs.touch_left_handed {
+                "Left-Handed: ON"
+            } else {
+                "Left-Handed: OFF"
+            },
+            if prefs.touch_left_handed {
+                0x5c3d6e
+            } else {
+                0x2b2233
+            },
+            prefs.touch_left_handed,
+        );
+        if click.is_some_and(|p| lh_btn.contains(p)) {
+            prefs.touch_left_handed = !prefs.touch_left_handed;
+            let _ = prefs.save();
+        }
+
+        let show_all_btn = Rect::new(
+            lh_btn.right() + 10. * s,
+            py,
+            panel.right() - 16. * s - (lh_btn.right() + 10. * s),
+            row_h,
+        );
+        draw_btn(show_all_btn, "Show All", 0x354552, false);
+        if click.is_some_and(|p| show_all_btn.contains(p)) {
+            for c in prefs.touch_layout.values_mut() {
+                c.visible = true;
+            }
+            let _ = prefs.save();
+            self.status = "All touch buttons set to Visible.".into();
+        }
+        py += row_h + 12. * s;
+
+        // Row 5: Reset Selected, Reset All, Save & Back
+        let reset_one = Rect::new(px, py, 155. * s, 38. * s);
+        let reset_all = Rect::new(reset_one.right() + 10. * s, py, 165. * s, 38. * s);
+        let done_btn = Rect::new(
+            reset_all.right() + 10. * s,
+            py,
+            panel.right() - 16. * s - (reset_all.right() + 10. * s),
+            38. * s,
+        );
+        draw_btn(reset_one, "Reset Selected", 0x5b2c24, false);
+        draw_btn(reset_all, "Reset All Default", 0x6e352c, false);
+        draw_btn(done_btn, "Save & Done", 0x276e36, true);
+
+        if click.is_some_and(|p| reset_one.contains(p)) {
+            prefs.reset_touch_control(sel_key);
+            let _ = prefs.save();
+            self.status = format!("Reset {} to default.", self.selected.title());
+        } else if click.is_some_and(|p| reset_all.contains(p)) {
+            prefs.reset_all_touch_controls();
+            prefs.touch_scale = 1.0;
+            prefs.touch_opacity = 0.78;
+            prefs.touch_left_handed = false;
+            let _ = prefs.save();
+            self.status = "All touch controls reset to defaults.".into();
+        } else if click.is_some_and(|p| done_btn.contains(p))
+            || is_key_pressed(KeyCode::Escape)
+            || is_key_pressed(KeyCode::Back)
+        {
+            let _ = prefs.save();
+            return true;
+        }
+
+        false
     }
 }
 
@@ -921,5 +1596,70 @@ mod tests {
         );
         assert!(!touch.action("Mouse 1", false));
         assert_eq!(touch.look_radians(screen.y, &prefs), Vec2::ZERO);
+    }
+
+    #[test]
+    fn custom_button_position_size_visibility_and_gamepad_off_mode() {
+        let mut touch = TouchState::default();
+        let ctx = TouchContext {
+            in_gameplay: true,
+            alive: true,
+            ..Default::default()
+        };
+        touch.set_context(ctx);
+        let screen = vec2(1280., 720.);
+        let mut prefs = Preferences::default();
+
+        let default_layout = Layout::build(screen, &prefs, ctx);
+        let default_jump = default_layout
+            .buttons
+            .iter()
+            .find(|b| b.button == TouchButton::Jump)
+            .unwrap()
+            .center;
+
+        // Move Jump left by 20% screen width, double its size, and hide Hint.
+        {
+            let j = prefs.touch_control_mut("jump");
+            j.offset_x = -0.20;
+            j.scale = 1.5;
+            let h = prefs.touch_control_mut("hint");
+            h.visible = false;
+        }
+        let custom_layout = Layout::build(screen, &prefs, ctx);
+        let moved_jump = custom_layout
+            .buttons
+            .iter()
+            .find(|b| b.button == TouchButton::Jump)
+            .unwrap();
+        assert!((moved_jump.center.x - (default_jump.x - 1280. * 0.20)).abs() < 1.0);
+        assert!(moved_jump.visible);
+
+        // Hidden Hint button does not register hits in gameplay, but remains selectable in the editor.
+        let hint_pos = custom_layout
+            .buttons
+            .iter()
+            .find(|b| b.button == TouchButton::Hint)
+            .unwrap()
+            .center;
+        assert_eq!(custom_layout.hit_button(hint_pos), None);
+        assert_eq!(
+            custom_layout.hit_editor_element(hint_pos),
+            Some(TouchElement::Button(TouchButton::Hint))
+        );
+
+        // Disabling touch controls (TouchMode::Off for gamepad play) ignores all touch inputs.
+        prefs.touch_mode = TouchMode::Off;
+        touch.update(
+            &[TouchPoint {
+                id: 1,
+                phase: TouchPhase::Started,
+                position: moved_jump.center,
+            }],
+            screen,
+            &prefs,
+            true,
+        );
+        assert!(!touch.action("Space", true));
     }
 }

@@ -213,7 +213,19 @@ fn read_pad(index: u32) -> Option<RawPad> {
     }
     #[cfg(not(windows))]
     {
-        let _ = index;
+        if index == 0 {
+            if let Some((buttons, lt, rt, lx, ly, rx, ry)) = crate::android::read_gamepad() {
+                return Some(RawPad {
+                    buttons,
+                    lt,
+                    rt,
+                    lx,
+                    ly,
+                    rx,
+                    ry,
+                });
+            }
+        }
         None
     }
 }
@@ -360,7 +372,12 @@ impl Input {
             }
         }
         match prefs.touch_mode {
-            crate::touch::TouchMode::Off => self.using_touch = false,
+            crate::touch::TouchMode::Off => {
+                self.using_touch = false;
+                if crate::android::is_android() && !key_active && !mouse_active {
+                    self.using_pad = true;
+                }
+            }
             crate::touch::TouchMode::On => {
                 self.using_touch = true;
                 self.using_pad = false;

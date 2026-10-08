@@ -107,6 +107,7 @@ pub struct Preferences {
     pub touch_scale: f32,
     pub touch_opacity: f32,
     pub touch_left_handed: bool,
+    pub touch_layout: std::collections::BTreeMap<String, crate::touch::TouchControlCustom>,
     pub performance_preset: crate::android::PerformancePreset,
     pub fps_limit: crate::android::FpsLimit,
 }
@@ -131,6 +132,7 @@ impl Default for Preferences {
             touch_scale: 1.,
             touch_opacity: 0.78,
             touch_left_handed: false,
+            touch_layout: std::collections::BTreeMap::new(),
             performance_preset: crate::android::PerformancePreset::Auto,
             fps_limit: crate::android::FpsLimit::Fps60,
         }
@@ -171,6 +173,19 @@ impl Preferences {
             self.touch_opacity.is_finite() && (0.2..=1.).contains(&self.touch_opacity),
             "Invalid touch opacity"
         );
+        for c in self.touch_layout.values() {
+            ensure!(
+                c.offset_x.is_finite()
+                    && (-1.0..=1.0).contains(&c.offset_x)
+                    && c.offset_y.is_finite()
+                    && (-1.0..=1.0).contains(&c.offset_y)
+                    && c.scale.is_finite()
+                    && (0.4..=2.2).contains(&c.scale)
+                    && c.opacity.is_finite()
+                    && (0.1..=1.0).contains(&c.opacity),
+                "Invalid touch button layout customization"
+            );
+        }
         for (i, key) in self.bindings.iter().enumerate() {
             ensure!(
                 crate::input::valid_binding(key)
@@ -237,6 +252,18 @@ impl Preferences {
                 miniquad::window::set_window_size(w, h);
             }
         }
+    }
+    pub fn touch_control(&self, key: &str) -> crate::touch::TouchControlCustom {
+        self.touch_layout.get(key).copied().unwrap_or_default()
+    }
+    pub fn touch_control_mut(&mut self, key: &str) -> &mut crate::touch::TouchControlCustom {
+        self.touch_layout.entry(key.to_owned()).or_default()
+    }
+    pub fn reset_touch_control(&mut self, key: &str) {
+        self.touch_layout.remove(key);
+    }
+    pub fn reset_all_touch_controls(&mut self) {
+        self.touch_layout.clear();
     }
     pub fn bind(&mut self, row: usize, name: &str, pad: bool) -> bool {
         if row >= BINDINGS.len()

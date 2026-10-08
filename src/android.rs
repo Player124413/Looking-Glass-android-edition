@@ -155,6 +155,57 @@ pub extern "C" fn looking_glass_target_frame_us() -> u64 {
     active_fps_limit().target_frame_us()
 }
 
+static ANDROID_PAD_CONNECTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static ANDROID_PAD_BUTTONS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static ANDROID_PAD_AXES_L: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static ANDROID_PAD_AXES_R: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+#[no_mangle]
+pub extern "C" fn Java_com_lookingglass_alice_MainActivity_nativeOnGamepad(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    connected: i32,
+    buttons: i32,
+    lt: i32,
+    rt: i32,
+    lx: i32,
+    ly: i32,
+    rx: i32,
+    ry: i32,
+) {
+    use std::sync::atomic::Ordering::Relaxed;
+    ANDROID_PAD_CONNECTED.store(connected != 0, Relaxed);
+    let btn16 = (buttons as u32) & 0xFFFF;
+    let lt8 = (lt.clamp(0, 255) as u32) & 0xFF;
+    let rt8 = (rt.clamp(0, 255) as u32) & 0xFF;
+    ANDROID_PAD_BUTTONS.store(btn16 | (lt8 << 16) | (rt8 << 24), Relaxed);
+    let lx16 = (lx.clamp(-32767, 32767) as i16 as u16) as u32;
+    let ly16 = (ly.clamp(-32767, 32767) as i16 as u16) as u32;
+    ANDROID_PAD_AXES_L.store(lx16 | (ly16 << 16), Relaxed);
+    let rx16 = (rx.clamp(-32767, 32767) as i16 as u16) as u32;
+    let ry16 = (ry.clamp(-32767, 32767) as i16 as u16) as u32;
+    ANDROID_PAD_AXES_R.store(rx16 | (ry16 << 16), Relaxed);
+}
+
+pub fn read_gamepad() -> Option<(u16, u8, u8, i16, i16, i16, i16)> {
+    use std::sync::atomic::Ordering::Relaxed;
+    if !ANDROID_PAD_CONNECTED.load(Relaxed) {
+        return None;
+    }
+    let packed_btn = ANDROID_PAD_BUTTONS.load(Relaxed);
+    let packed_l = ANDROID_PAD_AXES_L.load(Relaxed);
+    let packed_r = ANDROID_PAD_AXES_R.load(Relaxed);
+    let buttons = (packed_btn & 0xFFFF) as u16;
+    let lt = ((packed_btn >> 16) & 0xFF) as u8;
+    let rt = ((packed_btn >> 24) & 0xFF) as u8;
+    let lx = (packed_l & 0xFFFF) as u16 as i16;
+    let ly = ((packed_l >> 16) & 0xFFFF) as u16 as i16;
+    let rx = (packed_r & 0xFFFF) as u16 as i16;
+    let ry = ((packed_r >> 16) & 0xFFFF) as u16 as i16;
+    Some((buttons, lt, rt, lx, ly, rx, ry))
+}
+
 impl FpsLimit {
     pub const ALL: [Self; 3] = [Self::Fps30, Self::Fps60, Self::Unlimited];
 
@@ -789,12 +840,26 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
         )
     };
     let mut browsing = false;
+    let mut editing_touch = false;
+    let mut touch_editor = crate::touch::TouchEditor::default();
     let mut browse_dir = initial_browse_dir(&root);
     let mut browse_scroll = 0usize;
 
     loop {
         if is_quit_requested() {
             anyhow::bail!("Setup cancelled before game data was mounted");
+        }
+
+        if editing_touch {
+            if touch_editor.update_and_draw(&mut prefs) {
+                editing_touch = false;
+                status = format!(
+                    "Touch controls saved (Mode: {}).",
+                    prefs.touch_mode.name()
+                );
+            }
+            next_frame().await;
+            continue;
         }
 
         if let Some((state, msg)) = read_import_status(&root) {
@@ -819,9 +884,9 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
         clear_background(Color::from_hex(0x141118));
         let panel = Rect::new(
             (w - 880. * s).max(20.) * 0.5,
-            (h - 580. * s).max(20.) * 0.5,
+            (h - 610. * s).max(16.) * 0.5,
             (w - 40.).min(880. * s),
-            (h - 40.).min(580. * s),
+            (h - 32.).min(610. * s),
         );
         draw_rectangle(panel.x, panel.y, panel.w, panel.h, Color::from_hex(0x221b29));
         draw_rectangle_lines(
@@ -833,15 +898,15 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             Color::from_hex(0x8c6d46),
         );
         let x = panel.x + 26. * s;
-        let mut y = panel.y + 38. * s;
+        let mut y = panel.y + 34. * s;
         draw_text(
             "Looking Glass - Android Launcher",
             x,
             y,
-            (30. * s).round(),
+            (28. * s).round(),
             Color::from_hex(0xf3e5c8),
         );
-        y += 30. * s;
+        y += 26. * s;
 
         let pointer = touches()
             .iter()
@@ -856,29 +921,29 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 "Tap 'Choose Game Folder' or 'Select PK3 / ZIP' to import your Alice game folder,",
                 &format!("or tap 'START GAME' once pak0..pak4_english.pk3 are in {}", root.join("base").display()),
             ] {
-                draw_text(line, x, y, (18. * s).round(), Color::from_hex(0xd8cbb8));
-                y += 24. * s;
+                draw_text(line, x, y, (17. * s).round(), Color::from_hex(0xd8cbb8));
+                y += 22. * s;
             }
-            y += 6. * s;
+            y += 4. * s;
             draw_text(
                 &status,
                 x,
                 y,
-                (19. * s).round(),
+                (18. * s).round(),
                 Color::from_hex(if data_ready { 0x82e0aa } else { 0xe59866 }),
             );
 
             // FPS Limit Selector Row (30 FPS / 60 FPS / Unlimited)
-            let fps_y = y + 26. * s;
+            let fps_y = y + 18. * s;
             draw_text(
                 "FPS Limit:",
                 x,
-                fps_y + 30. * s,
-                (21. * s).round(),
+                fps_y + 28. * s,
+                (20. * s).round(),
                 Color::from_hex(0xf3e5c8),
             );
             for (i, mode) in FpsLimit::ALL.into_iter().enumerate() {
-                let btn = Rect::new(x + 150. * s + i as f32 * 185. * s, fps_y, 170. * s, 44. * s);
+                let btn = Rect::new(x + 145. * s + i as f32 * 180. * s, fps_y, 165. * s, 40. * s);
                 let active = prefs.fps_limit == mode;
                 draw_rectangle(
                     btn.x,
@@ -898,8 +963,8 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 draw_text(
                     mode.name(),
                     btn.x + 22. * s,
-                    btn.y + 29. * s,
-                    (20. * s).round(),
+                    btn.y + 27. * s,
+                    (19. * s).round(),
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
                 if pointer.is_some_and(|p| btn.contains(p)) {
@@ -911,16 +976,16 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             }
 
             // Graphics Preset Selector Row (Auto / Quality / Balanced / Performance)
-            let preset_y = fps_y + 56. * s;
+            let preset_y = fps_y + 48. * s;
             draw_text(
                 "Graphics:",
                 x,
-                preset_y + 30. * s,
-                (21. * s).round(),
+                preset_y + 28. * s,
+                (20. * s).round(),
                 Color::from_hex(0xf3e5c8),
             );
             for (i, preset) in PerformancePreset::ALL.into_iter().enumerate() {
-                let btn = Rect::new(x + 150. * s + i as f32 * 160. * s, preset_y, 148. * s, 44. * s);
+                let btn = Rect::new(x + 145. * s + i as f32 * 158. * s, preset_y, 146. * s, 40. * s);
                 let active = prefs.performance_preset == preset;
                 draw_rectangle(
                     btn.x,
@@ -940,8 +1005,8 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 draw_text(
                     preset.name(),
                     btn.x + 16. * s,
-                    btn.y + 29. * s,
-                    (19. * s).round(),
+                    btn.y + 27. * s,
+                    (18. * s).round(),
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
                 if pointer.is_some_and(|p| btn.contains(p)) {
@@ -952,15 +1017,98 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 }
             }
 
-            let row1_y = panel.bottom() - 134. * s;
-            let row2_y = panel.bottom() - 70. * s;
-            let folder_btn = Rect::new(x, row1_y, 250. * s, 50. * s);
-            let file_btn = Rect::new(x + 266. * s, row1_y, 240. * s, 50. * s);
-            let browse_btn = Rect::new(x + 522. * s, row1_y, 260. * s, 50. * s);
+            // Touch Controls & Gamepad Mode Row (Touch Auto / On / Off + Edit Touch HUD)
+            let ctrl_y = preset_y + 48. * s;
+            draw_text(
+                "Controls:",
+                x,
+                ctrl_y + 28. * s,
+                (20. * s).round(),
+                Color::from_hex(0xf3e5c8),
+            );
+            for (i, (mode, label)) in [
+                (crate::touch::TouchMode::Auto, "Touch: Auto"),
+                (crate::touch::TouchMode::On, "Touch: ON"),
+                (crate::touch::TouchMode::Off, "Touch: OFF (Pad)"),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let btn = Rect::new(x + 145. * s + i as f32 * 152. * s, ctrl_y, 142. * s, 40. * s);
+                let active = prefs.touch_mode == mode;
+                let fill = if active {
+                    if mode == crate::touch::TouchMode::Off {
+                        0x7b241c
+                    } else {
+                        0x276e36
+                    }
+                } else {
+                    0x2f2638
+                };
+                draw_rectangle(btn.x, btn.y, btn.w, btn.h, Color::from_hex(fill));
+                draw_rectangle_lines(
+                    btn.x,
+                    btn.y,
+                    btn.w,
+                    btn.h,
+                    if active { 3. * s } else { 1.5 * s },
+                    Color::from_hex(if active { 0xf5cba7 } else { 0x7c6750 }),
+                );
+                draw_text(
+                    label,
+                    btn.x + 12. * s,
+                    btn.y + 27. * s,
+                    (17. * s).round(),
+                    if active { Color::from_hex(0xfff2d6) } else { WHITE },
+                );
+                if pointer.is_some_and(|p| btn.contains(p)) {
+                    prefs.touch_mode = mode;
+                    let _ = prefs.save();
+                    status = if mode == crate::touch::TouchMode::Off {
+                        "Touch controls DISABLED (Gamepad mode active).".into()
+                    } else {
+                        format!("Controls mode set to {} (saved).", label)
+                    };
+                }
+            }
+            let edit_hud_btn = Rect::new(x + 145. * s + 3. * 152. * s, ctrl_y, 180. * s, 40. * s);
+            draw_rectangle(
+                edit_hud_btn.x,
+                edit_hud_btn.y,
+                edit_hud_btn.w,
+                edit_hud_btn.h,
+                Color::from_hex(0x1f618d),
+            );
+            draw_rectangle_lines(
+                edit_hud_btn.x,
+                edit_hud_btn.y,
+                edit_hud_btn.w,
+                edit_hud_btn.h,
+                2. * s,
+                Color::from_hex(0x85c1e9),
+            );
+            draw_text(
+                "Edit Touch HUD",
+                edit_hud_btn.x + 16. * s,
+                edit_hud_btn.y + 27. * s,
+                (18. * s).round(),
+                WHITE,
+            );
+            if pointer.is_some_and(|p| edit_hud_btn.contains(p)) {
+                editing_touch = true;
+                next_frame().await;
+                continue;
+            }
 
-            let auto_btn = Rect::new(x, row2_y, 250. * s, 50. * s);
-            let scan_btn = Rect::new(x + 266. * s, row2_y, 240. * s, 50. * s);
-            let quit_btn = Rect::new(x + 522. * s, row2_y, 160. * s, 50. * s);
+            let row1_y = panel.bottom() - 122. * s;
+            let row2_y = panel.bottom() - 62. * s;
+            let folder_btn = Rect::new(x, row1_y, 250. * s, 46. * s);
+            let file_btn = Rect::new(x + 266. * s, row1_y, 240. * s, 46. * s);
+            let browse_btn = Rect::new(x + 522. * s, row1_y, 260. * s, 46. * s);
+
+            let auto_btn = Rect::new(x, row2_y, 250. * s, 46. * s);
+            let scan_btn = Rect::new(x + 266. * s, row2_y, 240. * s, 46. * s);
+            let quit_btn = Rect::new(x + 522. * s, row2_y, 160. * s, 46. * s);
 
             for (rect, label, fill) in [
                 (folder_btn, "Choose Game Folder", Color::from_hex(0x6e352c)),
@@ -1025,8 +1173,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 }
             }
 
+            let pad_start = read_gamepad().is_some_and(|(btns, _, _, _, _, _, _)| {
+                btns & (0x0010 | 0x1000) != 0
+            });
             let trigger_scan = is_key_pressed(KeyCode::Enter)
                 || is_key_pressed(KeyCode::Space)
+                || pad_start
                 || pointer.is_some_and(|p| scan_btn.contains(p));
             let trigger_quit = is_key_pressed(KeyCode::Escape)
                 || is_key_pressed(KeyCode::Back)

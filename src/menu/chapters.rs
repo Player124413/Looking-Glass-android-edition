@@ -59,7 +59,7 @@ impl Menu {
                 focused,
                 input.using_pad,
             );
-            if focused && !input.using_touch {
+            if focused && !input.using_touch && !crate::android::is_android() {
                 self.ui.cursor();
             }
             next_frame().await;

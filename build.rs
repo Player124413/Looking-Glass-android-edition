@@ -27,6 +27,7 @@ fn main() {
             "JNI_OnLoad",
             "jni_on_load",
             "looking_glass_target_frame_us",
+            "Java_com_lookingglass_alice_MainActivity_nativeOnGamepad",
             "Java_quad_1native_QuadNative_activityOnCreate",
             "Java_quad_1native_QuadNative_activityOnResume",
             "Java_quad_1native_QuadNative_activityOnPause",

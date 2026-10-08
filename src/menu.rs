@@ -447,7 +447,7 @@ impl Menu {
                 if self.post_game || self.frontend {
                     buttons.pop();
                 }
-                if self.using_touch {
+                if self.using_touch || crate::android::is_android() {
                     buttons.push(Button::text(
                         Rect::new(470., 440., 150., 32.),
                         "Chapters",
@@ -1611,7 +1611,7 @@ impl Menu {
             let buttons = self.buttons(page);
             self.selected = self.selected.min(buttons.len().saturating_sub(1));
             self.draw(page, &buttons);
-            if focused && !self.using_touch {
+            if focused && !self.using_touch && !crate::android::is_android() {
                 self.ui.cursor();
             }
             if focused && is_key_pressed(KeyCode::F12) {

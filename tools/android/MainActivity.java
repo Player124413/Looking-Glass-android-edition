@@ -16,6 +16,7 @@ import android.provider.OpenableColumns;
 import android.system.Os;
 import android.util.Log;
 import android.view.Display;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -268,6 +269,18 @@ public class MainActivity extends Activity {
     private volatile boolean importRunning = false;
     private volatile boolean crashScreenShown = false;
 
+    private int padButtons = 0;
+    private int padHatBits = 0;
+    private int padLt = 0;
+    private int padRt = 0;
+    private int padLx = 0;
+    private int padLy = 0;
+    private int padRx = 0;
+    private int padRy = 0;
+
+    public static native void nativeOnGamepad(
+            int connected, int buttons, int lt, int rt, int lx, int ly, int rx, int ry);
+
     static {
         try {
             Os.setenv("RUST_MIN_STACK", "16777216", true);
@@ -408,6 +421,143 @@ public class MainActivity extends Activity {
         if (hasFocus && !crashScreenShown) {
             applyFullscreenFlags();
         }
+    }
+
+    private static int mapGamepadButtonBit(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_BUTTON_A:
+                return 0x1000;
+            case KeyEvent.KEYCODE_BUTTON_B:
+                return 0x2000;
+            case KeyEvent.KEYCODE_BUTTON_X:
+                return 0x4000;
+            case KeyEvent.KEYCODE_BUTTON_Y:
+                return 0x8000;
+            case KeyEvent.KEYCODE_BUTTON_L1:
+                return 0x0100;
+            case KeyEvent.KEYCODE_BUTTON_R1:
+                return 0x0200;
+            case KeyEvent.KEYCODE_BUTTON_SELECT:
+                return 0x0020;
+            case KeyEvent.KEYCODE_BUTTON_START:
+            case KeyEvent.KEYCODE_BUTTON_MODE:
+                return 0x0010;
+            case KeyEvent.KEYCODE_BUTTON_THUMBL:
+                return 0x0040;
+            case KeyEvent.KEYCODE_BUTTON_THUMBR:
+                return 0x0080;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                return 1;
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                return 2;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                return 4;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                return 8;
+            default:
+                return 0;
+        }
+    }
+
+    private void syncGamepadState() {
+        if (!libraryLoaded || crashScreenShown) {
+            return;
+        }
+        try {
+            nativeOnGamepad(
+                    1,
+                    padButtons | padHatBits,
+                    padLt,
+                    padRt,
+                    padLx,
+                    padLy,
+                    padRx,
+                    padRy);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event != null && !crashScreenShown && libraryLoaded) {
+            int src = event.getSource();
+            int code = event.getKeyCode();
+            boolean isPad =
+                    (src & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                            || (src & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+                            || (src & InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
+                            || KeyEvent.isGamepadButton(code);
+            if (isPad) {
+                boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+                if (code == KeyEvent.KEYCODE_BUTTON_L2) {
+                    padLt = down ? 255 : 0;
+                    syncGamepadState();
+                    return true;
+                }
+                if (code == KeyEvent.KEYCODE_BUTTON_R2) {
+                    padRt = down ? 255 : 0;
+                    syncGamepadState();
+                    return true;
+                }
+                int bit = mapGamepadButtonBit(code);
+                if (bit != 0) {
+                    if (down) {
+                        padButtons |= bit;
+                    } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                        padButtons &= ~bit;
+                    }
+                    syncGamepadState();
+                    return true;
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        if (event != null
+                && !crashScreenShown
+                && libraryLoaded
+                && event.getAction() == MotionEvent.ACTION_MOVE) {
+            int src = event.getSource();
+            if ((src & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+                    || (src & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD) {
+                float lx = event.getAxisValue(MotionEvent.AXIS_X);
+                float ly = -event.getAxisValue(MotionEvent.AXIS_Y);
+                float rx = event.getAxisValue(MotionEvent.AXIS_Z);
+                float ry = -event.getAxisValue(MotionEvent.AXIS_RZ);
+                if (Math.abs(rx) < 0.01f && Math.abs(ry) < 0.01f) {
+                    rx = event.getAxisValue(MotionEvent.AXIS_RX);
+                    ry = -event.getAxisValue(MotionEvent.AXIS_RY);
+                }
+                float lt =
+                        Math.max(
+                                event.getAxisValue(MotionEvent.AXIS_LTRIGGER),
+                                event.getAxisValue(MotionEvent.AXIS_BRAKE));
+                float rt =
+                        Math.max(
+                                event.getAxisValue(MotionEvent.AXIS_RTRIGGER),
+                                event.getAxisValue(MotionEvent.AXIS_GAS));
+                float hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X);
+                float hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
+                int hat = 0;
+                if (hatY < -0.5f) hat |= 1;
+                if (hatY > 0.5f) hat |= 2;
+                if (hatX < -0.5f) hat |= 4;
+                if (hatX > 0.5f) hat |= 8;
+                padHatBits = hat;
+                padLx = Math.max(-32767, Math.min(32767, Math.round(lx * 32767f)));
+                padLy = Math.max(-32767, Math.min(32767, Math.round(ly * 32767f)));
+                padRx = Math.max(-32767, Math.min(32767, Math.round(rx * 32767f)));
+                padRy = Math.max(-32767, Math.min(32767, Math.round(ry * 32767f)));
+                padLt = Math.max(0, Math.min(255, Math.round(lt * 255f)));
+                padRt = Math.max(0, Math.min(255, Math.round(rt * 255f)));
+                syncGamepadState();
+                return true;
+            }
+        }
+        return super.dispatchGenericMotionEvent(event);
     }
 
     private void installUncaughtExceptionHandler() {
