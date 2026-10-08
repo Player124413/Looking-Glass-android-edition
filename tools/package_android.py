@@ -48,6 +48,7 @@ MANIFEST_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
         android:label="{label}"
         android:hasCode="true"
         android:allowBackup="true"
+        android:extractNativeLibs="true"
         android:hardwareAccelerated="true">
         <activity
             android:name="{package_name}.MainActivity"
@@ -56,7 +57,7 @@ MANIFEST_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
             android:launchMode="singleTask"
             android:screenOrientation="{orientation}"
             android:keepScreenOn="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -248,6 +249,24 @@ def find_libcplusplus_shared(ndk_root: pathlib.Path | None, target: str) -> path
     return pathlib.Path(matches[-1]) if matches else None
 
 
+REQUIRED_JNI_SYMBOLS = [
+    "quad_main",
+    "JNI_OnLoad",
+    "jni_on_load",
+    "Java_quad_1native_QuadNative_activityOnCreate",
+    "Java_quad_1native_QuadNative_activityOnResume",
+    "Java_quad_1native_QuadNative_activityOnPause",
+    "Java_quad_1native_QuadNative_activityOnDestroy",
+    "Java_quad_1native_QuadNative_surfaceOnSurfaceCreated",
+    "Java_quad_1native_QuadNative_surfaceOnSurfaceDestroyed",
+    "Java_quad_1native_QuadNative_surfaceOnSurfaceChanged",
+    "Java_quad_1native_QuadNative_surfaceOnTouch",
+    "Java_quad_1native_QuadNative_surfaceOnKeyDown",
+    "Java_quad_1native_QuadNative_surfaceOnKeyUp",
+    "Java_quad_1native_QuadNative_surfaceOnCharacter",
+]
+
+
 def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) -> dict[str, str]:
     env = dict(os.environ)
     if ndk_root is None:
@@ -272,26 +291,68 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
     llvm_ar = bin_dir / f"llvm-ar{exe_ext}"
     target_under = target.replace("-", "_")
     target_upper = target_under.upper()
+
+    libgcc_dir = ROOT / "target" / "android-libgcc"
+    libgcc_dir.mkdir(parents=True, exist_ok=True)
+    (libgcc_dir / "libgcc.a").write_text("INPUT(-lunwind)\n", encoding="utf-8")
+
+    version_script_body = (
+        "{\n  global:\n"
+        + "".join(f"    {sym};\n" for sym in REQUIRED_JNI_SYMBOLS)
+        + "  local:\n    *;\n};\n"
+    )
+    custom_vs = libgcc_dir / "jni_exports.lds"
+    custom_vs.write_text(version_script_body, encoding="utf-8")
+
     if clang.exists():
         env[f"CC_{target_under}"] = str(clang)
-        env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(clang)
+        linker_py = libgcc_dir / "clang_linker_wrapper.py"
+        linker_py.write_text(
+            "#!/usr/bin/env python3\n"
+            "import pathlib, shutil, subprocess, sys\n"
+            f"REAL_CLANG = {str(clang)!r}\n"
+            f"CUSTOM_VS = pathlib.Path({str(custom_vs)!r})\n"
+            "def patch_arg(a: str) -> None:\n"
+            "    for prefix in ('-Wl,--version-script=', '--version-script='):\n"
+            "        if a.startswith(prefix):\n"
+            "            vs_path = pathlib.Path(a[len(prefix):])\n"
+            "            if vs_path.is_file():\n"
+            "                shutil.copy2(CUSTOM_VS, vs_path)\n"
+            "args = sys.argv[1:]\n"
+            "for arg in args:\n"
+            "    if arg.startswith('@') and pathlib.Path(arg[1:]).is_file():\n"
+            "        resp = pathlib.Path(arg[1:])\n"
+            "        for line in resp.read_text(encoding='utf-8', errors='ignore').splitlines():\n"
+            "            patch_arg(line.strip().strip('\"'))\n"
+            "    else:\n"
+            "        patch_arg(arg)\n"
+            "res = subprocess.run([REAL_CLANG, *args])\n"
+            "raise SystemExit(res.returncode)\n",
+            encoding="utf-8",
+        )
+        linker_py.chmod(0o755)
+        if os.name == "nt":
+            linker_cmd = libgcc_dir / "clang_linker_wrapper.cmd"
+            linker_cmd.write_text(f'@"{sys.executable}" "{linker_py}" %*\r\n', encoding="utf-8")
+            env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(linker_cmd)
+        else:
+            env[f"CARGO_TARGET_{target_upper}_LINKER"] = str(linker_py)
     if clangxx.exists():
         env[f"CXX_{target_under}"] = str(clangxx)
     if llvm_ar.exists():
         env[f"AR_{target_under}"] = str(llvm_ar)
 
-    libgcc_dir = ROOT / "target" / "android-libgcc"
-    libgcc_dir.mkdir(parents=True, exist_ok=True)
-    (libgcc_dir / "libgcc.a").write_text("INPUT(-lunwind)\n", encoding="utf-8")
     rustflags_key = f"CARGO_TARGET_{target_upper}_RUSTFLAGS"
     existing_flags = env.get(rustflags_key, "")
     link_flag = f"-Clink-arg=-L{libgcc_dir}"
     env[rustflags_key] = f"{existing_flags} {link_flag}".strip()
 
     wrapper_py = libgcc_dir / "rustc_cdylib_wrapper.py"
+    linker_bin = env.get(f"CARGO_TARGET_{target_upper}_LINKER", "")
     wrapper_py.write_text(
         "#!/usr/bin/env python3\n"
         "import pathlib, shutil, subprocess, sys\n"
+        f"LINKER_BIN = {linker_bin!r}\n"
         "args = sys.argv[1:]\n"
         "is_android_bin = (\n"
         "    'looking_glass' in args\n"
@@ -302,6 +363,8 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
         "    for i in range(len(args) - 1):\n"
         "        if args[i] == '--crate-type' and args[i + 1] == 'bin':\n"
         "            args[i + 1] = 'cdylib'\n"
+        "    if LINKER_BIN:\n"
+        "        args.append(f'-Clinker={LINKER_BIN}')\n"
         "res = subprocess.run(args)\n"
         "if is_android_bin and res.returncode == 0 and '--out-dir' in args:\n"
         "    out_dir = pathlib.Path(args[args.index('--out-dir') + 1])\n"
@@ -323,6 +386,36 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
     else:
         env["RUSTC_WRAPPER"] = str(wrapper_py)
     return env
+
+
+def verify_jni_exports(ndk_root: pathlib.Path | None, so_path: pathlib.Path) -> None:
+    nm_bin: str | None = shutil.which("llvm-nm") or shutil.which("nm")
+    if ndk_root is not None:
+        exe_ext = ".exe" if os.name == "nt" else ""
+        candidates = sorted(
+            glob.glob(str(ndk_root / "toolchains" / "llvm" / "prebuilt" / "*" / "bin" / f"llvm-nm{exe_ext}"))
+        )
+        if candidates:
+            nm_bin = candidates[-1]
+    if not nm_bin:
+        return
+    proc = subprocess.run(
+        [nm_bin, "-D", "--defined-only", str(so_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=True,
+    )
+    exported = set()
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if parts:
+            exported.add(parts[-1])
+    missing = [sym for sym in REQUIRED_JNI_SYMBOLS if sym not in exported]
+    if missing:
+        emit_ci_error("Missing JNI exports in .so", f"Missing: {missing} | Exported count: {len(exported)}")
+        raise SystemExit(f"Shared library {so_path} is missing required JNI exports: {missing}")
+    print(f"Verified all {len(REQUIRED_JNI_SYMBOLS)} JNI symbols exported in {so_path.name}", flush=True)
 
 
 def build_native_libraries(
@@ -369,6 +462,7 @@ def build_native_libraries(
             found = list(target_dir.glob("*.so")) + list((target_dir / "deps").glob("*.so"))
             emit_ci_error("Missing .so", f"Expected {so_path}, found: {[str(p) for p in found]}")
             raise SystemExit(f"Expected shared library not found for {target}: {so_path}")
+        verify_jni_exports(ndk_root, so_path)
         built[abi] = so_path
         extra[abi] = []
         cpp_shared = find_libcplusplus_shared(ndk_root, target)
@@ -472,12 +566,20 @@ def try_build_signed_apk(
         ]
     )
 
-    with zipfile.ZipFile(unaligned_apk, "a", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(work / "classes.dex", "classes.dex")
+    with zipfile.ZipFile(unaligned_apk, "a") as zf:
+        zf.write(work / "classes.dex", "classes.dex", compress_type=zipfile.ZIP_DEFLATED)
         for abi, so_path in sorted(libs.items()):
-            zf.write(so_path, f"lib/{abi}/liblooking_glass.so")
+            zf.write(
+                so_path,
+                f"lib/{abi}/liblooking_glass.so",
+                compress_type=zipfile.ZIP_STORED,
+            )
             for extra_so in extra_libs.get(abi, []):
-                zf.write(extra_so, f"lib/{abi}/{extra_so.name}")
+                zf.write(
+                    extra_so,
+                    f"lib/{abi}/{extra_so.name}",
+                    compress_type=zipfile.ZIP_STORED,
+                )
 
     dist_dir.mkdir(parents=True, exist_ok=True)
     final_apk = dist_dir / f"LookingGlass-v{meta['version']}-android.apk"

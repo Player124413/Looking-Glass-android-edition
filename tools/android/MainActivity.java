@@ -210,8 +210,13 @@ public class MainActivity extends Activity {
     private QuadSurface view;
     private File storageRoot;
     private volatile boolean importRunning = false;
+    private static boolean nativeStarted = false;
 
     static {
+        try {
+            System.loadLibrary("c++_shared");
+        } catch (Throwable ignored) {
+        }
         System.loadLibrary("looking_glass");
     }
 
@@ -238,26 +243,38 @@ public class MainActivity extends Activity {
         setContentView(layout);
 
         setFullScreen(true);
-        QuadNative.activityOnCreate(this);
+        if (!nativeStarted) {
+            nativeStarted = true;
+            QuadNative.activityOnCreate(this);
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         setFullScreen(true);
-        QuadNative.activityOnResume();
+        if (nativeStarted) {
+            QuadNative.activityOnResume();
+        }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        QuadNative.activityOnPause();
+        if (nativeStarted) {
+            QuadNative.activityOnPause();
+        }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        QuadNative.activityOnDestroy();
+        if (nativeStarted) {
+            QuadNative.activityOnDestroy();
+        }
+        if (isFinishing()) {
+            System.exit(0);
+        }
     }
 
     @Override
@@ -289,6 +306,7 @@ public class MainActivity extends Activity {
                 File saveDir = new File(ext, "saves");
                 baseDir.mkdirs();
                 saveDir.mkdirs();
+                Os.setenv("RUST_MIN_STACK", "16777216", true);
                 Os.setenv("LOOKING_GLASS_ANDROID_STORAGE", ext.getAbsolutePath(), true);
                 Os.setenv("LOOKING_GLASS_DATA", baseDir.getAbsolutePath(), false);
             }

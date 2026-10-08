@@ -189,6 +189,24 @@ fn run() -> Result<()> {
         story_preview: None,
         shelf_preview: false,
     };
+    if android::is_android() {
+        macroquad::Window::from_config(viewer::config(), async move {
+            let assets = match Assets::open(&o.data) {
+                Ok(assets) => assets,
+                Err(_) => match android::wait_for_data(o.data.clone()).await {
+                    Ok(assets) => assets,
+                    Err(e) => {
+                        eprintln!("Setup aborted: {e:#}");
+                        return;
+                    }
+                },
+            };
+            if let Err(e) = viewer::run(assets, o).await {
+                eprintln!("Viewer failed: {e:#}");
+            }
+        });
+        return Ok(());
+    }
     let mut args = std::env::args().skip(1);
     let mut mode = "view";
     let mut registry = registry_check::Args::default();

@@ -18,6 +18,7 @@ pub fn init_runtime() {
     {
         static INIT: std::sync::Once = std::sync::Once::new();
         INIT.call_once(|| unsafe {
+            std::env::set_var("RUST_MIN_STACK", "16777216");
             use macroquad::miniquad::native::android::{attach_jni_env, ndk_sys, ACTIVITY};
             let env = attach_jni_env();
             if !env.is_null() && !ACTIVITY.is_null() {

@@ -42,6 +42,13 @@ class AndroidPortTest(unittest.TestCase):
             self.assertEqual(root.attrib.get("package"), "com.lookingglass.alice")
 
             ns = {"android": "http://schemas.android.com/apk/res/android"}
+            app = root.find("./application")
+            self.assertIsNotNone(app)
+            assert app is not None
+            self.assertEqual(
+                app.attrib.get(f"{{{ns['android']}}}extractNativeLibs"),
+                "true",
+            )
             activity = root.find("./application/activity")
             self.assertIsNotNone(activity)
             assert activity is not None
