@@ -1032,7 +1032,7 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 || is_key_pressed(KeyCode::Back)
                 || pointer.is_some_and(|p| quit_btn.contains(p));
             if trigger_quit {
-                request_quit();
+                macroquad::miniquad::window::request_quit();
                 anyhow::bail!("Closed from data setup screen");
             }
             if trigger_scan {

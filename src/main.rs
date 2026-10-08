@@ -196,12 +196,14 @@ fn run() -> Result<()> {
                 Ok(assets) => assets,
                 Err(e) => {
                     eprintln!("Setup aborted: {e:#}");
+                    macroquad::miniquad::window::request_quit();
                     return;
                 }
             };
             if let Err(e) = viewer::run(assets, o).await {
                 eprintln!("Viewer failed: {e:#}");
             }
+            macroquad::miniquad::window::request_quit();
         });
         android::install_panic_hook();
         return Ok(());
