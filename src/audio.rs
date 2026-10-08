@@ -907,6 +907,7 @@ impl Audio {
             sink.set_volume(master * self.settings.effects);
             set_paused(sink, paused || voice_paused);
         }
+        let android = crate::android::is_android();
         for e in &mut self.emitters {
             let (left, right, attenuation) = spatial(e.spec.origin - listener, yaw, e.spec.radius);
             e.pan.set(left, right);
@@ -918,7 +919,10 @@ impl Audio {
                     * (1. - 0.7 * e.obstruction)
                     * 0.5,
             );
-            set_paused(&e.sink, paused);
+            set_paused(
+                &e.sink,
+                paused || (android && !e.spec.random && attenuation <= 0.0001),
+            );
             if e.spec.random && !paused {
                 // RandomSpeaker schedules server events. Existing PCM, music,
                 // speech and loops keep playing; the next emission waits.
@@ -965,7 +969,7 @@ impl Audio {
                     * (1. - 0.7 * e.obstruction)
                     * 0.7,
             );
-            set_paused(&e.sink, paused);
+            set_paused(&e.sink, paused || (android && attenuation <= 0.0001));
         }
     }
     pub fn movement(&mut self, distance: f32, grounded: bool, jumped: bool, landed: bool) {
@@ -1115,9 +1119,13 @@ impl Audio {
             .chain(self.reaction.iter_mut())
             .chain(self.loops.values_mut().map(|l| &mut l.effect))
         {
-            let target = e
-                .origin
-                .map_or(0., |p| acoustics::obstruction(world, listener, p));
+            let target = e.origin.map_or(0., |p| {
+                if p.distance_squared(listener) < (384. * 4.) * (384. * 4.) {
+                    acoustics::obstruction(world, listener, p)
+                } else {
+                    0.
+                }
+            });
             e.obstruction += (target - e.obstruction) * (1. - (-dt * 12.).exp());
             e.acoustics.set(e.obstruction, submerged, self.room);
         }

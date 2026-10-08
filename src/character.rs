@@ -1942,19 +1942,17 @@ fn draw_skin_deformed(
                 mesh.vertices[i].normal += n.extend(0.);
             }
         }
+        let light_dir = vec3(0.3, -0.5, 1.).normalize();
+        let alpha_byte = (alpha.clamp(0., 1.) * 255.) as u8;
         for v in &mut mesh.vertices {
             let n = v.normal.truncate().normalize_or_zero();
             let light = if fullbright {
                 1.
             } else {
-                0.65 + 0.35 * n.dot(vec3(0.3, -0.5, 1.).normalize()).max(0.)
+                0.65 + 0.35 * n.dot(light_dir).max(0.)
             };
-            v.color = [
-                (light * 255.) as u8,
-                (light * 255.) as u8,
-                (light * 255.) as u8,
-                (alpha.clamp(0., 1.) * 255.) as u8,
-            ];
+            let l_byte = (light * 255.) as u8;
+            v.color = [l_byte, l_byte, l_byte, alpha_byte];
         }
         crate::render_fx::skin(mesh);
     }

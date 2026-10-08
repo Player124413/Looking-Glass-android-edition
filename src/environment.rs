@@ -77,18 +77,22 @@ impl Atmosphere {
         })
     }
     pub fn apply(&self, material: &Material, camera: Vec3) {
+        const FOG_UNIFORMS: [(&str, &str, &str); 2] = [
+            ("FogAMin", "FogAMax", "FogA"),
+            ("FogBMin", "FogBMax", "FogB"),
+        ];
         material.set_uniform("FogEye", camera);
         material.set_uniform("DistanceFog", self.distance);
         material.set_uniform("LiquidFog", self.liquid);
-        for (i, prefix) in ["FogA", "FogB"].iter().enumerate() {
+        for (i, &(min_name, max_name, color_name)) in FOG_UNIFORMS.iter().enumerate() {
             let v = self.volumes.get(i).copied().unwrap_or(Volume {
                 min: Vec3::ZERO,
                 max: Vec3::ZERO,
                 color: Vec4::ZERO,
             });
-            material.set_uniform(&format!("{prefix}Min"), v.min);
-            material.set_uniform(&format!("{prefix}Max"), v.max);
-            material.set_uniform(prefix, v.color);
+            material.set_uniform(min_name, v.min);
+            material.set_uniform(max_name, v.max);
+            material.set_uniform(color_name, v.color);
         }
     }
     pub fn background(&self) -> Color {
@@ -162,6 +166,7 @@ float fogLength(vec3 lo,vec3 hi){
  return max(0.0,b-a)*length(d)*valid;
 }
 vec3 fogged(vec3 rgb,float additive){
+ if(DistanceFog.w<=0.0 && FogA.w<=0.0 && FogB.w<=0.0 && LiquidFog.w<=0.0)return rgb;
  // Multiplicative layers fade toward their blend's neutral value, never a
  // second layer of coloured fog. Additive light fades toward black.
  vec3 neutral=additive>2.5?vec3(0.5):vec3(1.0);

@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::{
     collections::BTreeMap,
     fs::{self, File},
-    io::Read,
+    io::{BufReader, Read},
     path::{Path, PathBuf},
 };
 use zip::ZipArchive;
@@ -11,8 +11,8 @@ const MAX_ENTRY: u64 = 128 * 1024 * 1024;
 
 /// Read-only PK3 mount. Later alphabetically sorted packs override earlier packs.
 pub struct Assets {
-    packs: Vec<ZipArchive<File>>,
-    entries: BTreeMap<String, (usize, usize)>,
+    packs: Vec<ZipArchive<BufReader<File>>>,
+    entries: BTreeMap<String, (usize, usize, u64, u32)>,
     pub base: PathBuf,
 }
 
@@ -22,12 +22,11 @@ impl Assets {
     pub fn fingerprint(&mut self) -> Result<String> {
         use sha2::{Digest, Sha256};
         let mut hash = Sha256::new();
-        for (name, &(pack, index)) in &self.entries {
-            let entry = self.packs[pack].by_index(index)?;
+        for (name, &(_pack, _index, size, crc32)) in &self.entries {
             hash.update((name.len() as u64).to_le_bytes());
             hash.update(name.as_bytes());
-            hash.update(entry.size().to_le_bytes());
-            hash.update(entry.crc32().to_le_bytes());
+            hash.update(size.to_le_bytes());
+            hash.update(crc32.to_le_bytes());
         }
         Ok(format!("{:x}", hash.finalize()))
     }
@@ -49,13 +48,17 @@ impl Assets {
         let mut entries = BTreeMap::new();
         let mut packs = Vec::new();
         for path in paths {
-            let mut pack = ZipArchive::new(File::open(&path)?)
+            let file = File::open(&path)?;
+            let mut pack = ZipArchive::new(BufReader::with_capacity(64 * 1024, file))
                 .with_context(|| format!("Invalid PK3: {}", path.display()))?;
             let p = packs.len();
             for i in 0..pack.len() {
-                let entry = pack.by_index(i)?;
+                let entry = pack.by_index_raw(i)?;
                 if !entry.is_dir() {
-                    entries.insert(normalize(entry.name()), (p, i));
+                    entries.insert(
+                        normalize(entry.name()),
+                        (p, i, entry.size(), entry.crc32()),
+                    );
                 }
             }
             packs.push(pack);
@@ -77,7 +80,7 @@ impl Assets {
         self.packs.len()
     }
     pub fn read(&mut self, name: &str) -> Result<Vec<u8>> {
-        let &(p, i) = self
+        let &(p, i, _, _) = self
             .entries
             .get(&normalize(name))
             .with_context(|| format!("Asset not found: {name}"))?;

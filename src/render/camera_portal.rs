@@ -395,7 +395,8 @@ impl Scene {
                 continue;
             }
             let aspect = camera.aspect.unwrap_or(screen_width() / screen_height());
-            let width = screen_width().min(1024.) as u32;
+            let max_portal_w = if crate::android::is_android() { 512. } else { 1024. };
+            let width = screen_width().min(max_portal_w) as u32;
             let height = (width as f32 / aspect).round().max(1.) as u32;
             if portal.target.as_ref().is_none_or(|t| {
                 t.texture.width() as u32 != width || t.texture.height() as u32 != height

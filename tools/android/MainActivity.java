@@ -49,6 +49,23 @@ class QuadSurface extends SurfaceView
         implements View.OnTouchListener, View.OnKeyListener, SurfaceHolder.Callback {
 
     private boolean hasActiveSurface = false;
+    private int surfaceWidth = 1280;
+    private int surfaceHeight = 648;
+
+    private static int[] computeRenderSize(int rawWidth, int rawHeight) {
+        final int targetShortSide = 648;
+        if (rawWidth <= 0 || rawHeight <= 0) {
+            return new int[] {1280, 648};
+        }
+        int shortSide = Math.min(rawWidth, rawHeight);
+        if (shortSide <= targetShortSide) {
+            return new int[] {rawWidth, rawHeight};
+        }
+        float scale = (float) targetShortSide / (float) shortSide;
+        int w = Math.max(2, Math.round(rawWidth * scale) & ~1);
+        int h = Math.max(2, Math.round(rawHeight * scale) & ~1);
+        return new int[] {w, h};
+    }
 
     public QuadSurface(Context context) {
         super(context);
@@ -90,9 +107,12 @@ class QuadSurface extends SurfaceView
         if (surface == null || !surface.isValid()) {
             return;
         }
+        int[] scaled = computeRenderSize(width, height);
+        surfaceWidth = scaled[0];
+        surfaceHeight = scaled[1];
         try {
             hasActiveSurface = true;
-            QuadNative.surfaceOnSurfaceChanged(surface, width, height);
+            QuadNative.surfaceOnSurfaceChanged(surface, surfaceWidth, surfaceHeight);
         } catch (Throwable t) {
             MainActivity.reportStaticFatalError("Exception in surfaceChanged", t);
         }
@@ -103,52 +123,60 @@ class QuadSurface extends SurfaceView
         try {
             int pointerCount = event.getPointerCount();
             int action = event.getActionMasked();
+            final float scaleX =
+                    (v.getWidth() > 0 && surfaceWidth > 0)
+                            ? ((float) surfaceWidth / (float) v.getWidth())
+                            : 1.0f;
+            final float scaleY =
+                    (v.getHeight() > 0 && surfaceHeight > 0)
+                            ? ((float) surfaceHeight / (float) v.getHeight())
+                            : 1.0f;
 
             switch (action) {
                 case MotionEvent.ACTION_MOVE: {
                     for (int i = 0; i < pointerCount; i++) {
                         final int id = event.getPointerId(i);
-                        final float x = event.getX(i);
-                        final float y = event.getY(i);
+                        final float x = event.getX(i) * scaleX;
+                        final float y = event.getY(i) * scaleY;
                         QuadNative.surfaceOnTouch(id, 0, x, y);
                     }
                     break;
                 }
                 case MotionEvent.ACTION_UP: {
                     final int id = event.getPointerId(0);
-                    final float x = event.getX(0);
-                    final float y = event.getY(0);
+                    final float x = event.getX(0) * scaleX;
+                    final float y = event.getY(0) * scaleY;
                     QuadNative.surfaceOnTouch(id, 1, x, y);
                     break;
                 }
                 case MotionEvent.ACTION_DOWN: {
                     final int id = event.getPointerId(0);
-                    final float x = event.getX(0);
-                    final float y = event.getY(0);
+                    final float x = event.getX(0) * scaleX;
+                    final float y = event.getY(0) * scaleY;
                     QuadNative.surfaceOnTouch(id, 2, x, y);
                     break;
                 }
                 case MotionEvent.ACTION_POINTER_UP: {
                     final int pointerIndex = event.getActionIndex();
                     final int id = event.getPointerId(pointerIndex);
-                    final float x = event.getX(pointerIndex);
-                    final float y = event.getY(pointerIndex);
+                    final float x = event.getX(pointerIndex) * scaleX;
+                    final float y = event.getY(pointerIndex) * scaleY;
                     QuadNative.surfaceOnTouch(id, 1, x, y);
                     break;
                 }
                 case MotionEvent.ACTION_POINTER_DOWN: {
                     final int pointerIndex = event.getActionIndex();
                     final int id = event.getPointerId(pointerIndex);
-                    final float x = event.getX(pointerIndex);
-                    final float y = event.getY(pointerIndex);
+                    final float x = event.getX(pointerIndex) * scaleX;
+                    final float y = event.getY(pointerIndex) * scaleY;
                     QuadNative.surfaceOnTouch(id, 2, x, y);
                     break;
                 }
                 case MotionEvent.ACTION_CANCEL: {
                     for (int i = 0; i < pointerCount; i++) {
                         final int id = event.getPointerId(i);
-                        final float x = event.getX(i);
-                        final float y = event.getY(i);
+                        final float x = event.getX(i) * scaleX;
+                        final float y = event.getY(i) * scaleY;
                         QuadNative.surfaceOnTouch(id, 3, x, y);
                     }
                     break;

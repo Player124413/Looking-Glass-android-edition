@@ -39,12 +39,19 @@ pub(crate) fn fixture_lights(lights: Vec<Light>) {
 pub(crate) fn count() -> usize {
     LIGHTS.with(|l| l.borrow().len())
 }
+const LIGHT_UNIFORMS: [&str; 8] = [
+    "FxLight0", "FxLight1", "FxLight2", "FxLight3", "FxLight4", "FxLight5", "FxLight6", "FxLight7",
+];
+const COLOR_UNIFORMS: [&str; 8] = [
+    "FxColor0", "FxColor1", "FxColor2", "FxColor3", "FxColor4", "FxColor5", "FxColor6", "FxColor7",
+];
+
 pub fn uniforms() -> Vec<UniformDesc> {
     (0..8)
         .flat_map(|i| {
             [
-                UniformDesc::new(&format!("FxLight{i}"), UniformType::Float4),
-                UniformDesc::new(&format!("FxColor{i}"), UniformType::Float4),
+                UniformDesc::new(LIGHT_UNIFORMS[i], UniformType::Float4),
+                UniformDesc::new(COLOR_UNIFORMS[i], UniformType::Float4),
             ]
         })
         .collect()
@@ -55,8 +62,11 @@ pub fn fragment(source: &str) -> String {
         s += &format!("uniform vec4 FxLight{i}; uniform vec4 FxColor{i};\n");
     }
     s += "vec3 dynamicLight(vec3 position){vec3 light=vec3(0.0);\n";
-    for i in 0..8 {
-        s+=&format!("if(FxColor{i}.w>0.5)light+=FxColor{i}.rgb*max(0.0,1.0-distance(position,FxLight{i}.xyz)/max(FxLight{i}.w,0.001));\n");
+    let count = if crate::android::is_android() { 4 } else { 8 };
+    for i in 0..count {
+        s += &format!(
+            "if(FxColor{i}.w>0.5){{highp vec3 d=position-FxLight{i}.xyz;highp float r=max(FxLight{i}.w,0.001);highp float d2=dot(d,d);if(d2<r*r)light+=FxColor{i}.rgb*(1.0-sqrt(d2)/r);}}\n"
+        );
     }
     s += "return light;}\n";
     source.replace("// LIGHTS", &s)
@@ -69,11 +79,11 @@ pub fn apply(material: &Material, model: bool, enabled: bool) {
                 .get(i)
                 .filter(|l| enabled && (model || !l.only_models));
             material.set_uniform(
-                &format!("FxLight{i}"),
+                LIGHT_UNIFORMS[i],
                 light.map_or(Vec4::ZERO, |l| l.position.extend(l.radius)),
             );
             material.set_uniform(
-                &format!("FxColor{i}"),
+                COLOR_UNIFORMS[i],
                 light.map_or(Vec4::ZERO, |l| l.color.extend(1.)),
             );
         }

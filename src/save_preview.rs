@@ -212,6 +212,9 @@ impl Frame {
     /// Call after the world and first-person toy, before any menus/HUD/cursor.
     pub fn update(&mut self) {
         let interval = crate::android::active_preset().save_preview_interval();
+        if crate::android::is_android() {
+            return;
+        }
         self.tick = self.tick.wrapping_add(1);
         if self.texture.is_some() && interval > 1 && self.tick % interval != 0 {
             return;

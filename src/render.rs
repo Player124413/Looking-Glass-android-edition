@@ -57,7 +57,7 @@ void main(){
  if(lm.z>0.5&&FxModel<0.5){float index=floor(lm.z-1.0+0.1);vec2 tile=vec2(mod(index,AtlasGrid.x),floor(index/AtlasGrid.x));vec2 sampleUV=(tile+clamp(lm.xy,vec2(0.5/128.0),vec2(127.5/128.0)))/AtlasGrid;lighting=min(vec3(1.0),texture2D(LightAtlas,sampleUV).rgb*2.0);}
  vec3 rgb=diffuse.rgb*mix(vec3(1.0),lighting,Lit*(1.0-Fullbright))*Gain.rgb;
  if(FxModel>0.5&&Lit<0.5)rgb*=color.rgb;
- rgb+=diffuse.rgb*dynamicLight(worldPosition)*Gain.rgb;
+ if(Lit>0.5&&Fullbright<0.5)rgb+=diffuse.rgb*dynamicLight(worldPosition)*Gain.rgb;
  if(FxAppearance.z>1.5)rgb=mix(rgb,rgb*vec3(0.65,1.15,0.7),0.6);else if(FxAppearance.z>0.5)rgb=mix(rgb,rgb*vec3(1.3,0.55,0.4),0.6);
  // Multiplicative actor layers fade toward their neutral blend colour.
  if(FxAppearance.w>0.0)rgb=mix(rgb,vec3(1.0),FxAppearance.w);else if(FxAppearance.w<0.0)rgb=mix(rgb,vec3(0.5),-FxAppearance.w);
@@ -561,21 +561,35 @@ fn draw_batch(
         }
     }
     context.stats.triangles += batch.mesh.indices.len() / 3 * batch.layers.len();
-    for (j, (v, base)) in batch.mesh.vertices.iter_mut().zip(&batch.base).enumerate() {
-        // Billboards use source UV corners to build geometry. Animated layer
-        // UVs from the previous frame must not move or rotate those corners.
-        v.uv = base.uv;
-        let mut p = batch
-            .animation
-            .as_ref()
-            .map_or(base.position, |animation| animation.position(j, time));
-        for deform in &batch.deforms {
-            p = deform.position(p, batch.normals[j], base.uv, time);
+    let has_pos_transform = batch.animation.is_some()
+        || !batch.deforms.is_empty()
+        || batch.motion.is_some()
+        || transform.is_some()
+        || offset != Vec3::ZERO;
+    let needs_pos_restore = !has_pos_transform
+        && batch
+            .mesh
+            .vertices
+            .first()
+            .zip(batch.base.first())
+            .is_some_and(|(v, b)| v.position != b.position);
+    if has_pos_transform || needs_pos_restore {
+        for (j, (v, base)) in batch.mesh.vertices.iter_mut().zip(&batch.base).enumerate() {
+            // Billboards use source UV corners to build geometry. Animated layer
+            // UVs from the previous frame must not move or rotate those corners.
+            v.uv = base.uv;
+            let mut p = batch
+                .animation
+                .as_ref()
+                .map_or(base.position, |animation| animation.position(j, time));
+            for deform in &batch.deforms {
+                p = deform.position(p, batch.normals[j], base.uv, time);
+            }
+            if let Some(motion) = &batch.motion {
+                p = motion.point(p, time);
+            }
+            v.position = transform.map_or(p, |(_, o, r)| *o + *r * p) + offset;
         }
-        if let Some(motion) = &batch.motion {
-            p = motion.point(p, time);
-        }
-        v.position = transform.map_or(p, |(_, o, r)| *o + *r * p) + offset;
     }
     if let Some(locked) = batch.deforms.iter().find_map(|d| {
         if let crate::materials::Deform::Sprite(lock) = d {
@@ -640,31 +654,50 @@ fn draw_batch(
     let mut queued = Vec::new();
     for layer in &batch.layers {
         let material = &materials[layer.material];
-        for (j, (v, base)) in batch.mesh.vertices.iter_mut().zip(&batch.base).enumerate() {
-            let mut n = batch.normals[j];
-            for deform in &batch.deforms {
-                n = deform.normal(base.position, n, time);
+        let sky_uv = batch.sky && !batch.portal;
+        let needs_normal = layer.spec.environment || layer.spec.dot_alpha.is_some();
+        let needs_eye_dir = layer.spec.dot_alpha.is_some();
+        let static_uv = !sky_uv
+            && layer.spec.vector_uv.is_none()
+            && !layer.spec.environment
+            && layer.spec.mods.is_empty();
+        if static_uv && !needs_eye_dir {
+            let fixed_alpha = (!layer.spec.vertex_alpha).then_some(255u8);
+            for (v, base) in batch.mesh.vertices.iter_mut().zip(&batch.base) {
+                v.uv = base.uv;
+                v.color = base.color;
+                if let Some(a) = fixed_alpha {
+                    v.color[3] = a;
+                }
             }
-            let n = batch
-                .motion
-                .as_ref()
-                .map_or(n, |m| m.normal(n, time));
-            let normal = transform.map_or(n, |(_, _, r)| *r * n);
-            let uv = if batch.sky && !batch.portal {
-                let ray = (v.position - camera).normalize_or_zero();
-                // Infinite, curved cloud projection; no translation with player motion.
-                ray.truncate() / (ray.z.abs() + 0.25) * 0.25 + Vec2::splat(0.5)
-            } else {
-                base.uv
-            };
-            v.uv = layer.spec.view_uv(uv, v.position, normal, camera, time);
-            v.color = base.color;
-            v.color[3] = (255.
-                * layer.spec.opacity(
-                    normal,
-                    (camera - v.position).normalize_or_zero(),
-                    base.color[3],
-                )) as u8;
+        } else {
+            for (j, (v, base)) in batch.mesh.vertices.iter_mut().zip(&batch.base).enumerate() {
+                let normal = if needs_normal {
+                    let mut n = batch.normals[j];
+                    for deform in &batch.deforms {
+                        n = deform.normal(base.position, n, time);
+                    }
+                    let n = batch.motion.as_ref().map_or(n, |m| m.normal(n, time));
+                    transform.map_or(n, |(_, _, r)| *r * n)
+                } else {
+                    Vec3::ZERO
+                };
+                let uv = if sky_uv {
+                    let ray = (v.position - camera).normalize_or_zero();
+                    // Infinite, curved cloud projection; no translation with player motion.
+                    ray.truncate() / (ray.z.abs() + 0.25) * 0.25 + Vec2::splat(0.5)
+                } else {
+                    base.uv
+                };
+                v.uv = layer.spec.view_uv(uv, v.position, normal, camera, time);
+                v.color = base.color;
+                let eye_dir = if needs_eye_dir {
+                    (camera - v.position).normalize_or_zero()
+                } else {
+                    Vec3::ZERO
+                };
+                v.color[3] = (255. * layer.spec.opacity(normal, eye_dir, base.color[3])) as u8;
+            }
         }
         batch.mesh.texture = Some(layer.textures[layer.spec.frame(time)].clone());
         if crate::render_fx::active() && batch.transparent() && !backdrop && !batch.sky {
@@ -685,11 +718,13 @@ fn draw_batch(
         }
         material.set_uniform("FxModel", 0_f32);
         material.set_uniform("FxAppearance", Vec4::ZERO);
-        crate::lighting::apply(
-            material,
-            false,
-            crate::render_fx::active() && layer.lit && !backdrop && !batch.sky,
-        );
+        if !crate::android::is_android() {
+            crate::lighting::apply(
+                material,
+                false,
+                crate::render_fx::active() && layer.lit && !backdrop && !batch.sky,
+            );
+        }
         material.set_uniform(
             "Lit",
             if layer.lit && !batch.sky && !backdrop {
@@ -1004,6 +1039,9 @@ impl Scene {
         for m in &self.bound_materials {
             self.atmosphere.apply(m, camera);
             m.set_uniform("Fullbright", if fullbright { 1_f32 } else { 0. });
+            if crate::android::is_android() {
+                crate::lighting::apply(m, false, crate::render_fx::active() && !fullbright);
+            }
         }
         particles.prepare_draw(camera, &self.atmosphere);
         let mut order = Vec::new();
@@ -1660,6 +1698,9 @@ impl Scene {
         for m in &self.bound_materials {
             self.atmosphere.apply(m, camera);
             m.set_uniform("Fullbright", if fullbright { 1_f32 } else { 0. });
+            if crate::android::is_android() {
+                crate::lighting::apply(m, false, crate::render_fx::active() && !fullbright);
+            }
         }
         context.cluster = cluster;
         context.enabled = self.optimize;

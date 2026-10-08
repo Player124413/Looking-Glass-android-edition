@@ -612,15 +612,39 @@ fn skin_timed(mesh: &Mesh, clock: Option<f32>, alpha: f32) {
             }]
             .clone(),
         );
-        for v in &mut copy.vertices {
-            let n = v.normal.truncate().normalize_or_zero();
-            v.uv = layer.stage.view_uv(v.uv, v.position, n, camera, time);
-            v.color[3] = (255.
-                * alpha
-                * layer
-                    .stage
-                    .opacity(n, (camera - v.position).normalize_or_zero(), v.color[3]))
-                as u8;
+        let needs_normal = layer.stage.environment || layer.stage.dot_alpha.is_some();
+        let needs_eye_dir = layer.stage.dot_alpha.is_some();
+        let static_uv = layer.stage.vector_uv.is_none()
+            && !layer.stage.environment
+            && layer.stage.mods.is_empty();
+        if static_uv && !needs_eye_dir {
+            if alpha < 1. || !layer.stage.vertex_alpha {
+                for v in &mut copy.vertices {
+                    let base_a = if layer.stage.vertex_alpha {
+                        v.color[3] as f32 / 255.
+                    } else {
+                        1.
+                    };
+                    v.color[3] = (255. * (alpha * base_a).clamp(0., 1.)) as u8;
+                }
+            }
+        } else {
+            for v in &mut copy.vertices {
+                let n = if needs_normal {
+                    v.normal.truncate().normalize_or_zero()
+                } else {
+                    Vec3::ZERO
+                };
+                if !static_uv {
+                    v.uv = layer.stage.view_uv(v.uv, v.position, n, camera, time);
+                }
+                let eye_dir = if needs_eye_dir {
+                    (camera - v.position).normalize_or_zero()
+                } else {
+                    Vec3::ZERO
+                };
+                v.color[3] = (255. * alpha * layer.stage.opacity(n, eye_dir, v.color[3])) as u8;
+            }
         }
         let mut stage = layer.stage.clone();
         if clock.is_none() && alpha < 1. {
