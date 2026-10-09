@@ -1,6 +1,6 @@
 [package]
 name = "looking-glass"
-version = "0.32.0"
+version = "0.32.0-preview.2"
 edition = "2021"
 rust-version = "1.86"
 publish = false
