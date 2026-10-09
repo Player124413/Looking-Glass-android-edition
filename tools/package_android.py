@@ -141,7 +141,7 @@ To play on Android, copy your own original `base/*.pk3` archives onto your devic
 1. Install the APK
 ------------------
 Install `LookingGlass-v{version}-android.apk` on your Android phone or tablet
-(Android 8.0 / API 26 or newer, 64-bit ARM64 or x86_64, OpenGL ES 2.0+).
+(Android 8.0 / API 26 or newer, 64-bit ARM64, 32-bit ARMv7 or x86_64, OpenGL ES 2.0+).
 
 2. Launch Once to Create Folders
 --------------------------------
@@ -151,15 +151,15 @@ present.
 
 3. Copy Your `base/*.pk3` Files
 -------------------------------
-Copy `pak0.pk3` (and `pak1_large.pk3` .. `pak4_english.pk3` from your installation's
-`base/` folder) into the app's external files directory:
+Copy `pak0.pk3`, `pak1_large.pk3`, `pak2.pk3`, `pak3.pk3`, `pak4_english.pk3` and
+`pak5_mod.pk3` from your installation's `base/` folder into the app's external files directory:
 
     /sdcard/Android/data/{package_name}/files/base/
 
 Via USB & `adb` from your computer:
     adb push path/to/Alice/base/*.pk3 /sdcard/Android/data/{package_name}/files/base/
 
-Tap **Scan & Start** on the setup screen (or relaunch the app) to enter Wonderland.
+Tap **START GAME** on the setup screen (or relaunch the app) to enter Wonderland.
 
 4. Touch Controls & Performance Settings
 ----------------------------------------
@@ -181,6 +181,25 @@ Tap **Scan & Start** on the setup screen (or relaunch the app) to enter Wonderla
 def _git_build_info() -> tuple[int, str]:
     commit_count = 0
     git_sha = "dev"
+    try:
+        # A shallow clone (default CI checkout) reports a commit count of 1 forever, which
+        # would freeze versionCode. Deepen it so every new commit gets a higher build number.
+        shallow = subprocess.check_output(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if shallow == "true":
+            subprocess.run(
+                ["git", "fetch", "--unshallow", "--quiet"],
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+    except Exception:
+        pass
     try:
         out = subprocess.check_output(
             ["git", "rev-list", "--count", "HEAD"],
@@ -211,13 +230,19 @@ def load_android_metadata() -> dict[str, object]:
     meta = dict(pkg.get("metadata", {}).get("android", {}))
     commit_count, git_sha = _git_build_info()
     base_version_code = int(meta.get("version_code", 3200))
+    base_version_name = str(meta.get("version_name", pkg["version"]))
+    # Every new commit raises both versionCode and the visible version (0.32.0 -> 0.32.0.<build>)
+    # so Android accepts the APK as an in-place update and the app shows a distinct version.
+    build_version = f"{base_version_name}.{commit_count}" if commit_count > 0 else base_version_name
     return {
         "name": pkg["name"],
-        "version": pkg["version"],
+        "version": build_version,
+        "base_version": base_version_name,
+        "build_number": commit_count,
         "package_name": meta.get("package_name", "com.lookingglass.alice"),
         "label": meta.get("label", "Looking Glass"),
         "version_code": base_version_code + commit_count,
-        "version_name": meta.get("version_name", pkg["version"]),
+        "version_name": build_version,
         "git_sha": git_sha,
         "min_sdk_version": int(meta.get("min_sdk_version", 26)),
         "target_sdk_version": int(meta.get("target_sdk_version", 34)),
@@ -249,6 +274,7 @@ def generate_layout(out_dir: pathlib.Path) -> dict[str, pathlib.Path]:
     )
     main_java = (ROOT / "tools" / "android" / "MainActivity.java").read_text(encoding="utf-8")
     main_java = main_java.replace("__BUILD_COMMIT_SHA__", str(meta.get("git_sha", "dev")))
+    main_java = main_java.replace("__BUILD_VERSION__", str(meta["version_name"]))
     quad_java = (ROOT / "tools" / "android" / "QuadNative.java").read_text(encoding="utf-8")
     activity_path.write_text(main_java, encoding="utf-8", newline="\n")
     quad_native_path.write_text(quad_java, encoding="utf-8", newline="\n")
@@ -322,13 +348,24 @@ def find_sdk_root() -> pathlib.Path | None:
     return None
 
 
+# Rust target triple -> NDK clang driver prefix (32-bit ARM uses "armv7a", not "armv7").
+NDK_CLANG_TRIPLES = {
+    "aarch64-linux-android": "aarch64-linux-android",
+    "armv7-linux-androideabi": "armv7a-linux-androideabi",
+    "x86_64-linux-android": "x86_64-linux-android",
+}
+# Rust target triple -> NDK sysroot library directory (holds libc++_shared.so).
+NDK_SYSROOT_TRIPLES = {
+    "aarch64-linux-android": "aarch64-linux-android",
+    "armv7-linux-androideabi": "arm-linux-androideabi",
+    "x86_64-linux-android": "x86_64-linux-android",
+}
+
+
 def find_libcplusplus_shared(ndk_root: pathlib.Path | None, target: str) -> pathlib.Path | None:
     if ndk_root is None:
         return None
-    ndk_triple = {
-        "aarch64-linux-android": "aarch64-linux-android",
-        "x86_64-linux-android": "x86_64-linux-android",
-    }.get(target)
+    ndk_triple = NDK_SYSROOT_TRIPLES.get(target)
     if not ndk_triple:
         return None
     pattern = str(ndk_root / "toolchains" / "llvm" / "prebuilt" / "*" / "sysroot" / "usr" / "lib" / ndk_triple / "libc++_shared.so")
@@ -369,10 +406,7 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
     if not bin_dirs:
         return env
     bin_dir = pathlib.Path(bin_dirs[-1])
-    ndk_triple = {
-        "aarch64-linux-android": "aarch64-linux-android",
-        "x86_64-linux-android": "x86_64-linux-android",
-    }.get(target, target)
+    ndk_triple = NDK_CLANG_TRIPLES.get(target, target)
     cmd_ext = ".cmd" if os.name == "nt" else ""
     exe_ext = ".exe" if os.name == "nt" else ""
     clang = bin_dir / f"{ndk_triple}{min_sdk}-clang{cmd_ext}"
@@ -455,10 +489,18 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
     patch_mq_py.write_text(
         "#!/usr/bin/env python3\n"
         "import pathlib, sys\n"
+        "def restore(path):\n"
+        "    # Patching must be idempotent: the same registry sources are compiled once per ABI.\n"
+        "    bak = path.with_name(path.name + '.lg-orig')\n"
+        "    if bak.exists():\n"
+        "        path.write_bytes(bak.read_bytes())\n"
+        "    else:\n"
+        "        bak.write_bytes(path.read_bytes())\n"
         "lib_rs = pathlib.Path(sys.argv[1])\n"
         "egl_rs = lib_rs.parent / 'native' / 'egl.rs'\n"
         "android_rs = lib_rs.parent / 'native' / 'android.rs'\n"
         "if egl_rs.is_file():\n"
+        "    restore(egl_rs)\n"
         "    txt = egl_rs.read_text(encoding='utf-8').replace('\\r\\n', '\\n')\n"
         "    txt = txt.replace('EGL_SAMPLES, sample_count as u32,', '0x3040, 4,')\n"
         "    txt = txt.replace('&& d == 16', '&& d >= 16')\n"
@@ -493,6 +535,7 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
         "    assert '0x3040, 4,' in txt and '&& d >= 16' in txt and 'ctx_es3' in txt, 'Failed to patch miniquad egl.rs'\n"
         "    egl_rs.write_text(txt, encoding='utf-8')\n"
         "if android_rs.is_file():\n"
+        "    restore(android_rs)\n"
         "    txt = android_rs.read_text(encoding='utf-8')\n"
         "    old_send = (\n"
         "        'fn send_message(message: Message) {\\n'\n"
@@ -714,6 +757,7 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
         "    android_rs.write_text(txt, encoding='utf-8')\n"
         "gl_rs = lib_rs.parent / 'graphics' / 'gl.rs'\n"
         "if gl_rs.is_file():\n"
+        "    restore(gl_rs)\n"
         "    txt = gl_rs.read_text(encoding='utf-8').replace('\\r\\n', '\\n')\n"
         "    old_buf = (\n"
         "        '            glBufferData(gl_target, size as _, std::ptr::null() as *const _, gl_usage);\\n'\n"
@@ -778,10 +822,18 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
     patch_macroquad_py = libgcc_dir / "patch_macroquad.py"
     patch_macroquad_py.write_text(
         "import pathlib, sys\n"
+        "def restore(path):\n"
+        "    # Patching must be idempotent: the same registry sources are compiled once per ABI.\n"
+        "    bak = path.with_name(path.name + '.lg-orig')\n"
+        "    if bak.exists():\n"
+        "        path.write_bytes(bak.read_bytes())\n"
+        "    else:\n"
+        "        bak.write_bytes(path.read_bytes())\n"
         "lib_rs = pathlib.Path(sys.argv[1]).resolve()\n"
         "src_dir = lib_rs.parent\n"
         "quad_gl = src_dir / 'quad_gl.rs'\n"
         "if quad_gl.is_file():\n"
+        "    restore(quad_gl)\n"
         "    txt = quad_gl.read_text(encoding='utf-8').replace('\\r\\n', '\\n')\n"
         "    txt = txt.replace('const MAX_PIPELINES: usize = 32;', 'const MAX_PIPELINES: usize = 64;')\n"
         "    txt = txt.replace('pipelines: Default::default(),', 'pipelines: std::array::from_fn(|_| None),')\n"
@@ -1074,6 +1126,7 @@ def build_native_libraries(
 ) -> tuple[dict[str, pathlib.Path], dict[str, list[pathlib.Path]]]:
     abi_map = {
         "aarch64-linux-android": "arm64-v8a",
+        "armv7-linux-androideabi": "armeabi-v7a",
         "x86_64-linux-android": "x86_64",
     }
     meta = load_android_metadata()
@@ -1284,7 +1337,72 @@ def try_build_signed_apk(
             str(final_apk),
         ]
     )
+    verify_signed_apk(bt_dir, final_apk, meta, sorted(libs))
     return final_apk
+
+
+def _capture(cmd: list[str]) -> tuple[int, str]:
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return proc.returncode, proc.stdout or ""
+
+
+def verify_signed_apk(
+    bt_dir: pathlib.Path,
+    apk: pathlib.Path,
+    meta: dict[str, object],
+    abis: list[str],
+) -> None:
+    """Fail the build when the APK would not install (damaged zip, bad alignment/signature)."""
+    exe = ".exe" if os.name == "nt" else ""
+    bat = ".bat" if os.name == "nt" else ""
+    problems: list[str] = []
+
+    with zipfile.ZipFile(apk) as zf:
+        bad = zf.testzip()
+        if bad is not None:
+            problems.append(f"corrupt zip entry: {bad}")
+        names = set(zf.namelist())
+        for required in ("AndroidManifest.xml", "classes.dex", "resources.arsc"):
+            if required not in names:
+                problems.append(f"missing {required}")
+        for abi in abis:
+            if f"lib/{abi}/liblooking_glass.so" not in names:
+                problems.append(f"missing lib/{abi}/liblooking_glass.so")
+        for info in zf.infolist():
+            if info.filename == "resources.arsc" and info.compress_type != zipfile.ZIP_STORED:
+                problems.append("resources.arsc must be stored uncompressed")
+            if info.filename.endswith(".so") and info.compress_type != zipfile.ZIP_STORED:
+                problems.append(f"{info.filename} must be stored uncompressed")
+        entries = len(zf.infolist())
+
+    rc, out = _capture([str(bt_dir / f"zipalign{exe}"), "-c", "-p", "4", str(apk)])
+    if rc != 0:
+        problems.append(f"zipalign check failed: {out.strip()}")
+
+    rc, out = _capture([str(bt_dir / f"apksigner{bat}"), "verify", "--verbose", "--print-certs", str(apk)])
+    print(out, end="", flush=True)
+    if rc != 0 or "Verifies" not in out:
+        problems.append(f"apksigner verify failed: {out.strip()}")
+    verified = [l.strip() for l in out.splitlines() if l.strip().startswith(("Verified using", "Number of signers"))]
+
+    rc, out = _capture([str(bt_dir / f"aapt2{exe}"), "dump", "badging", str(apk)])
+    if rc != 0:
+        problems.append(f"aapt2 dump badging failed: {out.strip()}")
+    badging = [
+        l.strip()
+        for l in out.splitlines()
+        if l.startswith(("package:", "sdkVersion", "targetSdkVersion", "native-code", "launchable-activity"))
+    ]
+    expected = f"versionCode='{meta['version_code']}'"
+    if expected not in out:
+        problems.append(f"badging does not report {expected}")
+
+    if problems:
+        emit_ci_error("APK verification failed", " ; ".join(problems))
+        raise SystemExit("APK verification failed: " + " ; ".join(problems))
+    summary = " | ".join([f"{apk.name} {apk.stat().st_size} bytes, {entries} entries", *verified, *badging])
+    summary = summary.replace("%", "%25")
+    print(f"::notice title=APK verified (zip, zipalign, signature, manifest)::{summary}", flush=True)
 
 
 def package_bundle(
@@ -1339,7 +1457,11 @@ def main() -> int:
         "--target",
         action="append",
         default=[],
-        help="Rust Android target triple (default: aarch64-linux-android).",
+        help=(
+            "Rust Android target triple; repeat for several ABIs, e.g. aarch64-linux-android "
+            "(arm64-v8a) and armv7-linux-androideabi (32-bit armeabi-v7a). "
+            "Default: aarch64-linux-android."
+        ),
     )
     parser.add_argument(
         "--debug",

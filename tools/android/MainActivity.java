@@ -12,9 +12,11 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.system.Os;
@@ -57,7 +59,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Enumeration;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import quad_native.QuadNative;
 
@@ -68,8 +72,18 @@ class QuadSurface extends SurfaceView
     private int surfaceWidth = 1194;
     private int surfaceHeight = 540;
 
-    private static int[] computeRenderSize(int rawWidth, int rawHeight) {
-        final int targetShortSide = 540;
+    // Render-buffer size. The launcher is drawn at (almost) native resolution so its text is
+    // sharp; once the game starts MainActivity.enterGameRenderMode() switches to the small
+    // 540p buffer the game has always used (the system scales it up).
+    private static final int LAUNCHER_SHORT_SIDE = 1080;
+    private static final int GAME_SHORT_SIDE = 540;
+    private volatile boolean gameRenderMode = false;
+    private SurfaceHolder currentHolder;
+    private int rawWidth = 0;
+    private int rawHeight = 0;
+
+    private static int[] computeRenderSize(int rawWidth, int rawHeight, boolean gameMode) {
+        final int targetShortSide = gameMode ? GAME_SHORT_SIDE : LAUNCHER_SHORT_SIDE;
         if (rawWidth <= 0 || rawHeight <= 0) {
             return new int[] {1194, 540};
         }
@@ -81,6 +95,34 @@ class QuadSurface extends SurfaceView
         int w = Math.max(2, Math.round(rawWidth * scale) & ~1);
         int h = Math.max(2, Math.round(rawHeight * scale) & ~1);
         return new int[] {w, h};
+    }
+
+    /** Switches from the sharp launcher buffer to the game's 540p buffer. UI thread only. */
+    public void applyGameRenderMode() {
+        gameRenderMode = true;
+        SurfaceHolder holder = currentHolder;
+        if (holder == null || rawWidth <= 0 || rawHeight <= 0) {
+            return;
+        }
+        Surface surface = holder.getSurface();
+        if (surface == null || !surface.isValid()) {
+            return;
+        }
+        int[] scaled = computeRenderSize(rawWidth, rawHeight, true);
+        if (scaled[0] == surfaceWidth && scaled[1] == surfaceHeight) {
+            return;
+        }
+        surfaceWidth = scaled[0];
+        surfaceHeight = scaled[1];
+        try {
+            hasActiveSurface = true;
+            // The native side applies the buffer geometry using the size it knew *before* this
+            // message, so announce the new size twice: the second call sets the final geometry.
+            QuadNative.surfaceOnSurfaceChanged(surface, surfaceWidth, surfaceHeight);
+            QuadNative.surfaceOnSurfaceChanged(surface, surfaceWidth, surfaceHeight);
+        } catch (Throwable t) {
+            MainActivity.reportStaticFatalError("Exception in applyGameRenderMode", t);
+        }
     }
 
     public QuadSurface(Context context) {
@@ -123,7 +165,10 @@ class QuadSurface extends SurfaceView
         if (surface == null || !surface.isValid()) {
             return;
         }
-        int[] scaled = computeRenderSize(width, height);
+        currentHolder = holder;
+        rawWidth = width;
+        rawHeight = height;
+        int[] scaled = computeRenderSize(width, height, gameRenderMode);
         surfaceWidth = scaled[0];
         surfaceHeight = scaled[1];
         try {
@@ -209,6 +254,11 @@ class QuadSurface extends SurfaceView
     @SuppressWarnings("deprecation")
     @Override
     public boolean onKey(View v, int keyCode, KeyEvent event) {
+        // Let the system handle the hardware volume rocker; consuming it here is what
+        // made the volume buttons stop working once the game view had focus.
+        if (isVolumeKey(keyCode)) {
+            return false;
+        }
         try {
             if (event.getAction() == KeyEvent.ACTION_DOWN && keyCode != 0) {
                 QuadNative.surfaceOnKeyDown(keyCode);
@@ -233,6 +283,12 @@ class QuadSurface extends SurfaceView
             MainActivity.reportStaticFatalError("Exception in onKey", t);
         }
         return true;
+    }
+
+    static boolean isVolumeKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_VOLUME_UP
+                || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+                || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE;
     }
 
     @Override
@@ -278,16 +334,19 @@ public class MainActivity extends Activity {
     private static Throwable libraryLoadError = null;
     private static boolean nativeStarted = false;
 
+    private static final String ZIP_HINT =
+            "The archive may be damaged or use unsupported compression. Re-download it, re-pack"
+                    + " the zip with Deflate/Store, or select the .pk3 files directly.";
     private static final String TELEGRAM_URL = "https://t.me/player1444ports";
     private static final String ORIGINAL_REPO_URL = "https://github.com/skulitom/LookingGlass";
     private static final String PORT_REPO_RELEASES_API =
-            "https://api.github.com/repos/Player124413/LookingGlass/releases/latest";
+            "https://api.github.com/repos/Player124413/Looking-Glass-android-edition/releases/latest";
     private static final String PORT_REPO_COMMITS_API =
-            "https://api.github.com/repos/Player124413/LookingGlass/commits?per_page=1";
+            "https://api.github.com/repos/Player124413/Looking-Glass-android-edition/commits?per_page=1";
     private static final String PORT_REPO_WEB_URL =
-            "https://github.com/Player124413/LookingGlass/actions";
+            "https://github.com/Player124413/Looking-Glass-android-edition/actions";
     private static final String BUILD_COMMIT_SHA = "__BUILD_COMMIT_SHA__";
-    private static final String BUILD_VERSION = "0.32.0";
+    private static final String BUILD_VERSION = "__BUILD_VERSION__";
     private static boolean startupDialogShown = false;
 
     private QuadSurface view;
@@ -347,6 +406,8 @@ public class MainActivity extends Activity {
         currentInstance = this;
         installUncaughtExceptionHandler();
         try {
+            // Route the hardware volume buttons to media volume (game audio) at all times.
+            setVolumeControlStream(AudioManager.STREAM_MUSIC);
             provisionStorage();
             this.requestWindowFeature(Window.FEATURE_NO_TITLE);
             getWindow()
@@ -799,6 +860,19 @@ public class MainActivity extends Activity {
                 });
     }
 
+    /** Called from Rust when the game starts: drop the render buffer to the game's 540p size. */
+    public void enterGameRenderMode() {
+        runOnUiThread(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (view != null) {
+                            view.applyGameRenderMode();
+                        }
+                    }
+                });
+    }
+
     public void openTelegramLink() {
         openExternalUrl(TELEGRAM_URL);
     }
@@ -1226,7 +1300,8 @@ public class MainActivity extends Activity {
                     && !installedSha.toLowerCase(Locale.ROOT).startsWith(
                             latestSha.toLowerCase(Locale.ROOT))) {
                 hasNewer = true;
-            } else if (latestTag != null
+            } else if (latestSha == null
+                    && latestTag != null
                     && !latestTag.equals("v" + BUILD_VERSION)
                     && !latestTag.equals(BUILD_VERSION)) {
                 hasNewer = true;
@@ -1738,7 +1813,8 @@ public class MainActivity extends Activity {
         } else {
             writeImportStatus(
                     "ERROR",
-                    "Selected file(s) did not contain any .pk3 archives.");
+                    "Selected file(s) did not contain any .pk3 archives. Only .pk3 and .zip are"
+                            + " supported - extract .7z/.rar files first.");
         }
     }
 
@@ -1754,43 +1830,166 @@ public class MainActivity extends Activity {
         byte[] buffer = new byte[256 * 1024];
         long copiedBytes = 0;
         long lastReport = 0;
-        try (InputStream in = resolver.openInputStream(uri);
-                OutputStream out = new FileOutputStream(tmpFile)) {
-            if (in == null) {
-                throw new IllegalStateException("Cannot open input stream for " + label);
-            }
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
-                copiedBytes += read;
-                if (copiedBytes - lastReport >= 8L * 1024L * 1024L) {
-                    lastReport = copiedBytes;
-                    long mb = copiedBytes / (1024L * 1024L);
-                    writeImportStatus(
-                            "BUSY",
-                            "Copying "
-                                    + label
-                                    + " ("
-                                    + index
-                                    + "/"
-                                    + total
-                                    + ", "
-                                    + mb
-                                    + " MB)...");
+        boolean done = false;
+        try {
+            try (InputStream in = resolver.openInputStream(uri);
+                    OutputStream out = new FileOutputStream(tmpFile)) {
+                if (in == null) {
+                    throw new IllegalStateException("Cannot open input stream for " + label);
+                }
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                    copiedBytes += read;
+                    if (copiedBytes - lastReport >= 8L * 1024L * 1024L) {
+                        lastReport = copiedBytes;
+                        long mb = copiedBytes / (1024L * 1024L);
+                        writeImportStatus(
+                                "BUSY",
+                                "Copying "
+                                        + label
+                                        + " ("
+                                        + index
+                                        + "/"
+                                        + total
+                                        + ", "
+                                        + mb
+                                        + " MB)...");
+                    }
                 }
             }
-        }
-        if (destFile.exists()) {
-            destFile.delete();
-        }
-        if (!tmpFile.renameTo(destFile)) {
-            throw new IllegalStateException("Could not finalize " + destFile.getName());
+            if (destFile.exists()) {
+                destFile.delete();
+            }
+            if (!tmpFile.renameTo(destFile)) {
+                throw new IllegalStateException("Could not finalize " + destFile.getName());
+            }
+            done = true;
+        } finally {
+            if (!done) {
+                tmpFile.delete();
+            }
         }
     }
 
+    /**
+     * Extracts every .pk3 inside a user-selected .zip into baseDir.
+     *
+     * <p>Preferred path is random access through the zip central directory, which (unlike a
+     * forward-only {@link ZipInputStream}) copes with stored entries that use data descriptors and
+     * with Zip64 archives. Those made the streaming reader abort after the first few packs, leaving
+     * the game with e.g. pak2.pk3 missing.
+     */
     private int extractPk3FromZipUri(
             ContentResolver resolver, Uri zipUri, String zipName, File baseDir) throws Exception {
         writeImportStatus("BUSY", "Scanning archive " + zipName + " for .pk3 files...");
+        ZipFile direct = openZipFileDirect(resolver, zipUri);
+        if (direct != null) {
+            try {
+                return extractPk3FromZipFile(direct, zipName, baseDir);
+            } finally {
+                try {
+                    direct.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        // Scoped storage often forbids re-opening the picked file by path. Copy it next to the
+        // game data and read it with ZipFile; this is far more reliable than forward-only
+        // streaming (which fails on Zip64 / data-descriptor archives with errors such as
+        // "invalid code lengths set").
+        long zipSize = queryDocumentSize(resolver, zipUri);
+        File parent = baseDir.getParentFile() != null ? baseDir.getParentFile() : baseDir;
+        boolean roomForCopy = zipSize < 0 || parent.getUsableSpace() > zipSize + 64L * 1024L * 1024L;
+        if (roomForCopy) {
+            try {
+                return extractPk3FromZipViaTempCopy(resolver, zipUri, zipName, baseDir);
+            } catch (java.util.zip.ZipException e) {
+                Log.w("LookingGlass", "ZipFile could not read the local copy, trying streaming", e);
+            }
+        }
+        return extractPk3FromZipStream(resolver, zipUri, zipName, baseDir);
+    }
+
+    private long queryDocumentSize(ContentResolver resolver, Uri uri) {
+        try (Cursor cursor =
+                resolver.query(uri, new String[] {OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                return cursor.getLong(0);
+            }
+        } catch (Exception ignored) {
+        }
+        return -1L;
+    }
+
+    /** Opens the picked document as a random-access ZipFile, or returns null if not possible. */
+    private ZipFile openZipFileDirect(ContentResolver resolver, Uri uri) {
+        ParcelFileDescriptor pfd = null;
+        try {
+            pfd = resolver.openFileDescriptor(uri, "r");
+            if (pfd == null) {
+                return null;
+            }
+            return new ZipFile("/proc/self/fd/" + pfd.getFd());
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (pfd != null) {
+                try {
+                    pfd.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private int extractPk3FromZipFile(ZipFile zf, String zipName, File baseDir) throws Exception {
+        List<ZipEntry> packs = new ArrayList<>();
+        Enumeration<? extends ZipEntry> entries = zf.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            if (entry.isDirectory()) {
+                continue;
+            }
+            String entryName = new File(entry.getName()).getName();
+            if (!entryName.toLowerCase(Locale.ROOT).endsWith(".pk3")) {
+                continue;
+            }
+            int method = entry.getMethod();
+            if (method != ZipEntry.STORED && method != ZipEntry.DEFLATED) {
+                // Fail before touching any file so a half-imported set is never left behind.
+                throw new IllegalStateException(
+                        entryName
+                                + " in "
+                                + zipName
+                                + " uses unsupported compression (method "
+                                + method
+                                + ", e.g. Deflate64). "
+                                + ZIP_HINT);
+            }
+            packs.add(entry);
+        }
+        byte[] buffer = new byte[256 * 1024];
+        int extracted = 0;
+        for (ZipEntry entry : packs) {
+            String entryName = new File(entry.getName()).getName();
+            try (InputStream in = zf.getInputStream(entry)) {
+                long written = writePk3Entry(in, entryName, zipName, baseDir, buffer);
+                long expected = entry.getSize();
+                if (expected >= 0 && written != expected) {
+                    new File(baseDir, sanitizeFileName(entryName)).delete();
+                    throw new IllegalStateException(
+                            entryName + " is incomplete (" + written + " of " + expected
+                                    + " bytes). " + ZIP_HINT);
+                }
+                extracted++;
+            }
+        }
+        return extracted;
+    }
+
+    private int extractPk3FromZipStream(
+            ContentResolver resolver, Uri zipUri, String zipName, File baseDir) throws Exception {
         int extracted = 0;
         byte[] buffer = new byte[256 * 1024];
         try (InputStream raw = resolver.openInputStream(zipUri)) {
@@ -1800,35 +1999,10 @@ public class MainActivity extends Activity {
             try (ZipInputStream zis = new ZipInputStream(raw)) {
                 ZipEntry entry;
                 while ((entry = zis.getNextEntry()) != null) {
-                    if (entry.isDirectory()) {
-                        continue;
-                    }
-                    String entryName = new File(entry.getName()).getName();
-                    if (entryName.toLowerCase(Locale.ROOT).endsWith(".pk3")) {
-                        String safeName = sanitizeFileName(entryName);
-                        File destFile = new File(baseDir, safeName);
-                        File tmpFile = new File(baseDir, safeName + ".part");
-                        long bytes = 0;
-                        long lastReport = 0;
-                        writeImportStatus("BUSY", "Extracting " + safeName + " from " + zipName + "...");
-                        try (OutputStream out = new FileOutputStream(tmpFile)) {
-                            int read;
-                            while ((read = zis.read(buffer)) != -1) {
-                                out.write(buffer, 0, read);
-                                bytes += read;
-                                if (bytes - lastReport >= 8L * 1024L * 1024L) {
-                                    lastReport = bytes;
-                                    long mb = bytes / (1024L * 1024L);
-                                    writeImportStatus(
-                                            "BUSY",
-                                            "Extracting " + safeName + " (" + mb + " MB)...");
-                                }
-                            }
-                        }
-                        if (destFile.exists()) {
-                            destFile.delete();
-                        }
-                        if (tmpFile.renameTo(destFile)) {
+                    if (!entry.isDirectory()) {
+                        String entryName = new File(entry.getName()).getName();
+                        if (entryName.toLowerCase(Locale.ROOT).endsWith(".pk3")) {
+                            writePk3Entry(zis, entryName, zipName, baseDir, buffer);
                             extracted++;
                         }
                     }
@@ -1837,6 +2011,72 @@ public class MainActivity extends Activity {
             }
         }
         return extracted;
+    }
+
+    /** Last resort: copy the zip next to the game data, read it with ZipFile, then delete it. */
+    private int extractPk3FromZipViaTempCopy(
+            ContentResolver resolver, Uri zipUri, String zipName, File baseDir) throws Exception {
+        File parent = baseDir.getParentFile() != null ? baseDir.getParentFile() : baseDir;
+        File tmpZip = new File(parent, "import-tmp.zip");
+        try {
+            copyUriToFile(resolver, zipUri, tmpZip, zipName, 1, 1);
+            ZipFile zf = new ZipFile(tmpZip);
+            try {
+                return extractPk3FromZipFile(zf, zipName, baseDir);
+            } finally {
+                try {
+                    zf.close();
+                } catch (Exception ignored) {
+                }
+            }
+        } finally {
+            tmpZip.delete();
+        }
+    }
+
+    /** Writes one .pk3 stream to baseDir atomically (.part file, then rename). */
+    private long writePk3Entry(
+            InputStream in, String entryName, String zipName, File baseDir, byte[] buffer)
+            throws Exception {
+        String safeName = sanitizeFileName(entryName);
+        File destFile = new File(baseDir, safeName);
+        File tmpFile = new File(baseDir, safeName + ".part");
+        long bytes = 0;
+        long lastReport = 0;
+        boolean done = false;
+        writeImportStatus("BUSY", "Extracting " + safeName + " from " + zipName + "...");
+        try {
+            try (OutputStream out = new FileOutputStream(tmpFile)) {
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                    bytes += read;
+                    if (bytes - lastReport >= 8L * 1024L * 1024L) {
+                        lastReport = bytes;
+                        long mb = bytes / (1024L * 1024L);
+                        writeImportStatus(
+                                "BUSY", "Extracting " + safeName + " (" + mb + " MB)...");
+                    }
+                }
+            }
+            if (destFile.exists()) {
+                destFile.delete();
+            }
+            if (!tmpFile.renameTo(destFile)) {
+                throw new IllegalStateException("Could not finalize " + safeName);
+            }
+            done = true;
+            return bytes;
+        } catch (java.util.zip.ZipException e) {
+            throw new IllegalStateException(
+                    "Cannot unpack " + safeName + " from " + zipName + ": " + e.getMessage()
+                            + ". " + ZIP_HINT,
+                    e);
+        } finally {
+            if (!done) {
+                tmpFile.delete();
+            }
+        }
     }
 
     private String queryDisplayName(ContentResolver resolver, Uri uri) {
