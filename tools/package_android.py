@@ -1337,7 +1337,72 @@ def try_build_signed_apk(
             str(final_apk),
         ]
     )
+    verify_signed_apk(bt_dir, final_apk, meta, sorted(libs))
     return final_apk
+
+
+def _capture(cmd: list[str]) -> tuple[int, str]:
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return proc.returncode, proc.stdout or ""
+
+
+def verify_signed_apk(
+    bt_dir: pathlib.Path,
+    apk: pathlib.Path,
+    meta: dict[str, object],
+    abis: list[str],
+) -> None:
+    """Fail the build when the APK would not install (damaged zip, bad alignment/signature)."""
+    exe = ".exe" if os.name == "nt" else ""
+    bat = ".bat" if os.name == "nt" else ""
+    problems: list[str] = []
+
+    with zipfile.ZipFile(apk) as zf:
+        bad = zf.testzip()
+        if bad is not None:
+            problems.append(f"corrupt zip entry: {bad}")
+        names = set(zf.namelist())
+        for required in ("AndroidManifest.xml", "classes.dex", "resources.arsc"):
+            if required not in names:
+                problems.append(f"missing {required}")
+        for abi in abis:
+            if f"lib/{abi}/liblooking_glass.so" not in names:
+                problems.append(f"missing lib/{abi}/liblooking_glass.so")
+        for info in zf.infolist():
+            if info.filename == "resources.arsc" and info.compress_type != zipfile.ZIP_STORED:
+                problems.append("resources.arsc must be stored uncompressed")
+            if info.filename.endswith(".so") and info.compress_type != zipfile.ZIP_STORED:
+                problems.append(f"{info.filename} must be stored uncompressed")
+        entries = len(zf.infolist())
+
+    rc, out = _capture([str(bt_dir / f"zipalign{exe}"), "-c", "-p", "4", str(apk)])
+    if rc != 0:
+        problems.append(f"zipalign check failed: {out.strip()}")
+
+    rc, out = _capture([str(bt_dir / f"apksigner{bat}"), "verify", "--verbose", "--print-certs", str(apk)])
+    print(out, end="", flush=True)
+    if rc != 0 or "Verifies" not in out:
+        problems.append(f"apksigner verify failed: {out.strip()}")
+    verified = [l.strip() for l in out.splitlines() if l.strip().startswith(("Verified using", "Number of signers"))]
+
+    rc, out = _capture([str(bt_dir / f"aapt2{exe}"), "dump", "badging", str(apk)])
+    if rc != 0:
+        problems.append(f"aapt2 dump badging failed: {out.strip()}")
+    badging = [
+        l.strip()
+        for l in out.splitlines()
+        if l.startswith(("package:", "sdkVersion", "targetSdkVersion", "native-code", "launchable-activity"))
+    ]
+    expected = f"versionCode='{meta['version_code']}'"
+    if expected not in out:
+        problems.append(f"badging does not report {expected}")
+
+    if problems:
+        emit_ci_error("APK verification failed", " ; ".join(problems))
+        raise SystemExit("APK verification failed: " + " ; ".join(problems))
+    summary = " | ".join([f"{apk.name} {apk.stat().st_size} bytes, {entries} entries", *verified, *badging])
+    summary = summary.replace("%", "%25")
+    print(f"::notice title=APK verified (zip, zipalign, signature, manifest)::{summary}", flush=True)
 
 
 def package_bundle(
