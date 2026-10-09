@@ -10,6 +10,7 @@ Looking Glass does **not** include any proprietary *American McGee's Alice* game
 
 1. Install the Looking Glass Android APK (`com.lookingglass.alice`) on a 64-bit Android 8.0+ (API 26+) device with OpenGL ES 2.0+ support.
 2. Launch **Looking Glass**. The built-in **Android Launcher** opens with a short, uncluttered screen:
+   - **Top bar**: **Port by Player1444 (TG)** (opens the Telegram channel), **Check Updates** and **Credits**.
    - **FPS Limit**: `30 FPS`, `60 FPS` or `Unlimited`.
    - **Graphics**: `Auto`, `Quality`, `Balanced` or `Performance`.
    - **Controls**: `Touch: Auto`, `Touch: ON` or `Touch: OFF (Pad)` (plus **Edit Touch HUD** to arrange the on-screen buttons).
