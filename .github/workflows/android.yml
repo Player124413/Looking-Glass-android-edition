@@ -43,7 +43,7 @@ jobs:
       - name: Upload Android APK & bundle artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LookingGlass-android-arm64
+          name: LookingGlass-android
           path: |
             target/android-dist/LookingGlass-*-android.apk
             target/android-dist/LookingGlass-*-android-bundle.zip
