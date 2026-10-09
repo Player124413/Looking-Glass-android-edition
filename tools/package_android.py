@@ -151,15 +151,15 @@ present.
 
 3. Copy Your `base/*.pk3` Files
 -------------------------------
-Copy `pak0.pk3` (and `pak1_large.pk3` .. `pak4_english.pk3` from your installation's
-`base/` folder) into the app's external files directory:
+Copy `pak0.pk3`, `pak1_large.pk3`, `pak2.pk3`, `pak3.pk3`, `pak4_english.pk3` and
+`pak5_mod.pk3` from your installation's `base/` folder into the app's external files directory:
 
     /sdcard/Android/data/{package_name}/files/base/
 
 Via USB & `adb` from your computer:
     adb push path/to/Alice/base/*.pk3 /sdcard/Android/data/{package_name}/files/base/
 
-Tap **Scan & Start** on the setup screen (or relaunch the app) to enter Wonderland.
+Tap **START GAME** on the setup screen (or relaunch the app) to enter Wonderland.
 
 4. Touch Controls & Performance Settings
 ----------------------------------------

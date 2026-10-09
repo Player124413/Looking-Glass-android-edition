@@ -9,16 +9,20 @@ Looking Glass does **not** include any proprietary *American McGee's Alice* game
 ## 1. Installing & Supplying Game Data (`base/*.pk3`)
 
 1. Install the Looking Glass Android APK (`com.lookingglass.alice`) on a 64-bit Android 8.0+ (API 26+) device with OpenGL ES 2.0+ support.
-2. Launch **Looking Glass**. When no PK3 archives are mounted yet, the built-in **Game Data Launcher** opens automatically with four convenient ways to import your game without needing a PC:
-   - **Choose Game Folder**: Opens Android's native system folder chooser (`ACTION_OPEN_DOCUMENT_TREE`). Pick your downloaded `Alice` or `base/` folder anywhere on your phone, SD card, or USB drive, and Looking Glass automatically copies all `*.pk3` files into `/sdcard/Android/data/com.lookingglass.alice/files/base/` and launches the game.
-   - **Select PK3 / ZIP**: Opens Android's native file chooser (`ACTION_OPEN_DOCUMENT`) so you can select `pak0.pk3`..`pak4_english.pk3` or a `.zip` archive of the game; Looking Glass copies or extracts the `.pk3` archives directly into `base/`.
-   - **Browse Folders**: Opens the built-in directory browser inside the launcher window so you can navigate folders and tap **Copy From This Folder**.
-   - **Auto-Import Downloads**: Automatically scans `Download`, `Documents`, and `LookingGlass` folders on your device and copies any discovered `.pk3` archives into `base/`.
-3. You can also copy `pak0.pk3`..`pak4_english.pk3` manually or via `adb`:
+2. Launch **Looking Glass**. The built-in **Android Launcher** opens with a short, uncluttered screen:
+   - **FPS Limit**: `30 FPS`, `60 FPS` or `Unlimited`.
+   - **Graphics**: `Auto`, `Quality`, `Balanced` or `Performance`.
+   - **Controls**: `Touch: Auto`, `Touch: ON` or `Touch: OFF (Pad)` (plus **Edit Touch HUD** to arrange the on-screen buttons).
+   - **Choose Game Folder**: Opens Android's native system folder chooser (`ACTION_OPEN_DOCUMENT_TREE`). Pick your downloaded `Alice` or `base/` folder anywhere on your phone, SD card, or USB drive, and Looking Glass copies all `*.pk3` files into `/sdcard/Android/data/com.lookingglass.alice/files/base/`.
+   - **Select PK3 / ZIP**: Opens Android's native file chooser (`ACTION_OPEN_DOCUMENT`) so you can select the `.pk3` files or a `.zip` archive of the game; Looking Glass copies or extracts the `.pk3` archives directly into `base/`. `.7z` / `.rar` archives are not supported - extract them first.
+   - **START GAME**: Mounts the game files and starts. The game only starts when the complete set of archives is present: `pak0.pk3`, `pak1_large.pk3`, `pak2.pk3`, `pak3.pk3`, `pak4_english.pk3` and `pak5_mod.pk3`. If something is missing (for example `pak2.pk3`), the launcher lists exactly which files are missing instead of failing later in the game.
+3. You can also copy the `.pk3` files manually or via `adb`:
    ```bash
    adb push /path/to/Alice/base/*.pk3 /sdcard/Android/data/com.lookingglass.alice/files/base/
    ```
-   Then tap **Scan & Start** on the launcher screen to start playing.
+   Then tap **START GAME** on the launcher screen to start playing.
+
+Hardware **volume buttons** are left to Android (media volume) at all times, including while the game is running.
 
 ---
 

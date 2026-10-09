@@ -434,6 +434,88 @@ pub fn has_pk3_archives(dir: &Path) -> bool {
     })
 }
 
+/// Retail PK3 archives the game needs (same set the Windows setup validates).
+/// `pak4_english.pk3` is the language pack; any `pak4*.pk3` satisfies that slot.
+pub const REQUIRED_PACKS: [&str; 6] = [
+    "pak0.pk3",
+    "pak1_large.pk3",
+    "pak2.pk3",
+    "pak3.pk3",
+    "pak4_english.pk3",
+    "pak5_mod.pk3",
+];
+
+/// Names from [`REQUIRED_PACKS`] that are not present in `dir` (case-insensitive).
+pub fn missing_required_packs(dir: &Path) -> Vec<&'static str> {
+    let present: Vec<String> = fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| entry.file_name().to_str().map(|n| n.to_ascii_lowercase()))
+                .collect::<Vec<String>>()
+        })
+        .unwrap_or_default();
+    REQUIRED_PACKS
+        .iter()
+        .copied()
+        .filter(|required| {
+            if required.starts_with("pak4_") {
+                !present
+                    .iter()
+                    .any(|name| name.starts_with("pak4") && name.ends_with(".pk3"))
+            } else {
+                !present.iter().any(|name| name.as_str() == *required)
+            }
+        })
+        .collect()
+}
+
+fn missing_packs_message(missing: &[&str]) -> String {
+    format!(
+        "Missing game files: {}. Use Choose Game Folder or Select PK3 / ZIP.",
+        missing.join(", ")
+    )
+}
+
+/// Resolve the game folder, require the complete PK3 set and mount it.
+/// Returns a user-facing message instead of starting with an incomplete install.
+fn open_ready_assets(initial: &Path, root: &Path) -> std::result::Result<Assets, String> {
+    let resolved = resolve_data_dir(initial);
+    let missing = missing_required_packs(&resolved);
+    if !missing.is_empty() {
+        return Err(missing_packs_message(&missing));
+    }
+    match Assets::open(&resolved) {
+        Ok(assets) => {
+            remember_data_dir(root, &resolved);
+            Ok(assets)
+        }
+        Err(e) => Err(format!(
+            "Cannot open game files in {}: {e:#}",
+            resolved.display()
+        )),
+    }
+}
+
+/// Greedy word wrap for the launcher status line (no font metrics needed).
+fn wrap_status(text: &str, max_chars: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if !current.is_empty() && current.chars().count() + 1 + word.chars().count() > max_chars {
+            lines.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
 /// Inspect a directory or its standard `base` / `Alice1/bin/base` children for PK3 archives.
 pub fn find_pk3_dir(root: &Path) -> Option<PathBuf> {
     for suffix in ["", "base", "bin/base", "Alice1/bin/base", "game-data/Alice1/bin/base"] {
@@ -492,14 +574,28 @@ pub fn candidate_data_dirs(root: &Path) -> Vec<PathBuf> {
 }
 
 pub fn resolve_data_dir(configured: &Path) -> PathBuf {
+    // Prefer a folder that holds the complete PK3 set; otherwise remember the first
+    // partial one so the launcher can report exactly which packs are missing.
+    let mut first_partial = None;
     if let Some(found) = find_pk3_dir(configured) {
-        return found;
+        if missing_required_packs(&found).is_empty() {
+            return found;
+        }
+        first_partial = Some(found);
     }
     let root = storage_root();
     for candidate in candidate_data_dirs(&root) {
         if let Some(found) = find_pk3_dir(&candidate) {
-            return found;
+            if missing_required_packs(&found).is_empty() {
+                return found;
+            }
+            if first_partial.is_none() {
+                first_partial = Some(found);
+            }
         }
+    }
+    if let Some(found) = first_partial {
+        return found;
     }
     if is_android() {
         prepare_directories(&root);
@@ -530,10 +626,10 @@ pub fn prepare_directories(root: &Path) {
              Copy your compatible American McGee's Alice (2011) PK3 files into this folder:\n\
              - pak0.pk3\n\
              - pak1_large.pk3\n\
-             - pak2_small.pk3\n\
+             - pak2.pk3\n\
              - pak3.pk3\n\
              - pak4_english.pk3\n\
-             - pak5_mod.pk3 (if present)\n",
+             - pak5_mod.pk3\n",
         );
     }
 }
@@ -610,21 +706,25 @@ pub fn open_system_file_picker() -> bool {
 }
 
 /// Open Player1444's Telegram channel (`https://t.me/player1444ports`).
+#[allow(dead_code)]
 pub fn open_telegram_link() -> bool {
     call_activity_void("openTelegramLink")
 }
 
 /// Open the original LookingGlass repository (`https://github.com/skulitom/LookingGlass`).
+#[allow(dead_code)]
 pub fn open_github_link() -> bool {
     call_activity_void("openGithubLink")
 }
 
 /// Show the localized Startup Credits & Links window (`MainActivity.showCreditsDialog()`).
+#[allow(dead_code)]
 pub fn show_credits_dialog() -> bool {
     call_activity_void("showCreditsDialog")
 }
 
 /// Trigger an asynchronous GitHub update check (`MainActivity.checkForUpdates()`).
+#[allow(dead_code)]
 pub fn check_for_updates() -> bool {
     call_activity_void("checkForUpdates")
 }
@@ -772,6 +872,7 @@ pub fn import_game_dir(source: &Path, dest_base: &Path) -> Result<usize> {
 
 /// Automatically scan common device storage locations (`Download`, `Documents`, `LookingGlass`)
 /// and copy any discovered `.pk3` archives into `<root>/base`.
+#[allow(dead_code)]
 pub fn auto_import_from_storage(root: &Path) -> Result<usize> {
     let dest_base = root.join("base");
     let mut search_roots = vec![
@@ -847,12 +948,15 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
     clear_import_status(&root);
     let mut prefs = crate::preferences::Preferences::load();
     prefs.display();
-    let initial_ready = has_pk3_archives(&resolve_data_dir(&initial));
-    let mut status = if initial_ready {
+    let initial_dir = resolve_data_dir(&initial);
+    let initial_missing = missing_required_packs(&initial_dir);
+    let mut status = if has_pk3_archives(&initial_dir) && initial_missing.is_empty() {
         format!(
             "Game data ready in {}. Select FPS / Preset and tap START GAME.",
-            resolve_data_dir(&initial).display()
+            initial_dir.display()
         )
+    } else if has_pk3_archives(&initial_dir) {
+        missing_packs_message(&initial_missing)
     } else {
         format!(
             "Select your game folder or PK3 archive to copy into {}",
@@ -864,6 +968,8 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
     let mut touch_editor = crate::touch::TouchEditor::default();
     let mut browse_dir = initial_browse_dir(&root);
     let mut browse_scroll = 0usize;
+    let mut frame = 0u32;
+    let mut data_ready = false;
 
     loop {
         if is_quit_requested() {
@@ -888,17 +994,29 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             }
             if state == "DONE" {
                 clear_import_status(&root);
-                let resolved = resolve_data_dir(&initial);
-                if let Ok(assets) = Assets::open(&resolved) {
-                    remember_data_dir(&root, &resolved);
-                    return Ok(assets);
+                match open_ready_assets(&initial, &root) {
+                    Ok(assets) => return Ok(assets),
+                    Err(msg) => status = format!("Import finished. {msg}"),
                 }
             } else if state == "ERROR" || state == "IDLE" {
                 clear_import_status(&root);
+                if state == "ERROR" {
+                    let resolved = resolve_data_dir(&initial);
+                    let missing = missing_required_packs(&resolved);
+                    if has_pk3_archives(&resolved) && !missing.is_empty() {
+                        status = format!("{status} {}", missing_packs_message(&missing));
+                    }
+                }
             }
         }
 
-        let data_ready = has_pk3_archives(&resolve_data_dir(&initial));
+        // Scanning storage every frame is wasteful; refresh a few times per second.
+        if frame % 20 == 0 {
+            let resolved = resolve_data_dir(&initial);
+            data_ready =
+                has_pk3_archives(&resolved) && missing_required_packs(&resolved).is_empty();
+        }
+        frame = frame.wrapping_add(1);
         let (w, h) = (screen_width(), screen_height());
         let s = (h / 720.).clamp(0.65, 2.2).min(w / 960.);
         clear_background(Color::from_hex(0x141118));
@@ -935,68 +1053,29 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             Color::from_hex(0xf3e5c8),
         );
 
-        let top_btn_y = panel.y + 10. * s;
-        let tg_btn = Rect::new(panel.right() - 486. * s, top_btn_y, 206. * s, 32. * s);
-        let upd_btn = Rect::new(panel.right() - 272. * s, top_btn_y, 152. * s, 32. * s);
-        let info_btn = Rect::new(panel.right() - 112. * s, top_btn_y, 94. * s, 32. * s);
-        for (rect, label, fill, border) in [
-            (
-                tg_btn,
-                "Port by Player1444 (TG)",
-                Color::from_hex(0x1b4f72),
-                Color::from_hex(0x85c1e9),
-            ),
-            (
-                upd_btn,
-                "Check Updates",
-                Color::from_hex(0x7d5a2b),
-                Color::from_hex(0xf5cba7),
-            ),
-            (
-                info_btn,
-                "Credits",
-                Color::from_hex(0x4a235a),
-                Color::from_hex(0xbb8fce),
-            ),
-        ] {
-            draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
-            draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.5 * s, border);
-            draw_text(
-                label,
-                rect.x + 10. * s,
-                rect.y + 22. * s,
-                (16. * s).round(),
-                WHITE,
-            );
-        }
-        if pointer.is_some_and(|p| tg_btn.contains(p)) {
-            let _ = open_telegram_link();
-            status = "Opening https://t.me/player1444ports ...".into();
-        } else if pointer.is_some_and(|p| upd_btn.contains(p)) {
-            let _ = check_for_updates();
-            status = "Checking for updates on GitHub...".into();
-        } else if pointer.is_some_and(|p| info_btn.contains(p)) {
-            let _ = show_credits_dialog();
-        }
-
         y += 26. * s;
 
         if !browsing {
             for line in [
-                "Tap 'Choose Game Folder' or 'Select PK3 / ZIP' to import your Alice game folder,",
-                &format!("or tap 'START GAME' once pak0..pak4_english.pk3 are in {}", root.join("base").display()),
+                "Tap 'Choose Game Folder' or 'Select PK3 / ZIP' to import your game, then 'START GAME'.",
+                "Needs: pak0, pak1_large, pak2, pak3, pak4_english, pak5_mod (.pk3)",
+                &format!("Game files folder: {}", root.join("base").display()),
             ] {
                 draw_text(line, x, y, (17. * s).round(), Color::from_hex(0xd8cbb8));
                 y += 22. * s;
             }
             y += 4. * s;
-            draw_text(
-                &status,
-                x,
-                y,
-                (18. * s).round(),
-                Color::from_hex(if data_ready { 0x82e0aa } else { 0xe59866 }),
-            );
+            let status_lines = wrap_status(&status, 78);
+            for (i, line) in status_lines.iter().take(3).enumerate() {
+                draw_text(
+                    line,
+                    x,
+                    y + i as f32 * 22. * s,
+                    (18. * s).round(),
+                    Color::from_hex(if data_ready { 0x82e0aa } else { 0xe59866 }),
+                );
+            }
+            y += (status_lines.len().clamp(1, 3) as f32 - 1.) * 22. * s;
 
             // FPS Limit Selector Row (30 FPS / 60 FPS / Unlimited)
             let fps_y = y + 18. * s;
@@ -1167,25 +1246,18 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
 
             let row1_y = panel.bottom() - 122. * s;
             let row2_y = panel.bottom() - 62. * s;
-            let folder_btn = Rect::new(x, row1_y, 250. * s, 46. * s);
-            let file_btn = Rect::new(x + 266. * s, row1_y, 240. * s, 46. * s);
-            let browse_btn = Rect::new(x + 522. * s, row1_y, 260. * s, 46. * s);
-
-            let auto_btn = Rect::new(x, row2_y, 250. * s, 46. * s);
-            let scan_btn = Rect::new(x + 266. * s, row2_y, 240. * s, 46. * s);
-            let quit_btn = Rect::new(x + 522. * s, row2_y, 160. * s, 46. * s);
+            let folder_btn = Rect::new(x, row1_y, 330. * s, 46. * s);
+            let file_btn = Rect::new(x + 346. * s, row1_y, 330. * s, 46. * s);
+            let scan_btn = Rect::new(x, row2_y, 676. * s, 46. * s);
 
             for (rect, label, fill) in [
                 (folder_btn, "Choose Game Folder", Color::from_hex(0x6e352c)),
                 (file_btn, "Select PK3 / ZIP", Color::from_hex(0x4a354f)),
-                (browse_btn, "Browse Folders", Color::from_hex(0x354552)),
-                (auto_btn, "Auto-Import Downloads", Color::from_hex(0x3d4f35)),
                 (
                     scan_btn,
-                    if data_ready { "START GAME" } else { "Scan & Start" },
+                    "START GAME",
                     Color::from_hex(if data_ready { 0x276e36 } else { 0x5b2c24 }),
                 ),
-                (quit_btn, "Quit", Color::from_hex(0x342a38)),
             ] {
                 draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
                 draw_rectangle_lines(
@@ -1219,23 +1291,6 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     browsing = true;
                     browse_scroll = 0;
                 }
-            } else if pointer.is_some_and(|p| browse_btn.contains(p)) {
-                browsing = true;
-                browse_scroll = 0;
-            } else if pointer.is_some_and(|p| auto_btn.contains(p)) {
-                match auto_import_from_storage(&root) {
-                    Ok(count) => {
-                        status = format!("Copied {count} PK3 archive(s) into base/. Starting...");
-                        let resolved = resolve_data_dir(&initial);
-                        if let Ok(assets) = Assets::open(&resolved) {
-                            remember_data_dir(&root, &resolved);
-                            return Ok(assets);
-                        }
-                    }
-                    Err(e) => {
-                        status = format!("{e}");
-                    }
-                }
             }
 
             let pad_start = read_gamepad().is_some_and(|(btns, _, _, _, _, _, _)| {
@@ -1245,24 +1300,16 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 || is_key_pressed(KeyCode::Space)
                 || pad_start
                 || pointer.is_some_and(|p| scan_btn.contains(p));
-            let trigger_quit = is_key_pressed(KeyCode::Escape)
-                || is_key_pressed(KeyCode::Back)
-                || pointer.is_some_and(|p| quit_btn.contains(p));
+            let trigger_quit = is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Back);
             if trigger_quit {
                 macroquad::miniquad::window::request_quit();
                 anyhow::bail!("Closed from data setup screen");
             }
             if trigger_scan {
                 prepare_directories(&root);
-                let resolved = resolve_data_dir(&initial);
-                match Assets::open(&resolved) {
-                    Ok(assets) => {
-                        remember_data_dir(&root, &resolved);
-                        return Ok(assets);
-                    }
-                    Err(e) => {
-                        status = format!("Still missing PK3 files: {e}");
-                    }
+                match open_ready_assets(&initial, &root) {
+                    Ok(assets) => return Ok(assets),
+                    Err(msg) => status = msg,
                 }
             }
         } else {
@@ -1372,19 +1419,13 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             } else if pointer.is_some_and(|p| copy_btn.contains(p)) {
                 let dest_base = root.join("base");
                 match import_game_dir(&browse_dir, &dest_base) {
-                    Ok(count) => {
-                        let resolved = resolve_data_dir(&initial);
-                        match Assets::open(&resolved) {
-                            Ok(assets) => {
-                                remember_data_dir(&root, &resolved);
-                                return Ok(assets);
-                            }
-                            Err(e) => {
-                                status = format!("Copied {count} archive(s), but mount failed: {e}");
-                                browsing = false;
-                            }
+                    Ok(count) => match open_ready_assets(&initial, &root) {
+                        Ok(assets) => return Ok(assets),
+                        Err(msg) => {
+                            status = format!("Copied {count} archive(s). {msg}");
+                            browsing = false;
                         }
-                    }
+                    },
                     Err(e) => {
                         status = format!("{e}");
                     }
@@ -1438,6 +1479,36 @@ mod tests {
 
         fs::remove_dir_all(&temp)?;
         Ok(())
+    }
+
+    #[test]
+    fn reports_missing_required_packs() -> Result<()> {
+        let temp = std::env::temp_dir().join(format!("lg-android-packs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp)?;
+        assert_eq!(missing_required_packs(&temp).len(), REQUIRED_PACKS.len());
+        for name in ["pak0.pk3", "PAK1_LARGE.PK3", "pak3.pk3", "pak4_english.pk3"] {
+            fs::write(temp.join(name), b"x")?;
+        }
+        assert_eq!(
+            missing_required_packs(&temp),
+            vec!["pak2.pk3", "pak5_mod.pk3"]
+        );
+        for name in ["pak2.pk3", "pak5_mod.pk3"] {
+            fs::write(temp.join(name), b"x")?;
+        }
+        assert!(missing_required_packs(&temp).is_empty());
+        assert!(missing_required_packs(&temp.join("does-not-exist")).len() == REQUIRED_PACKS.len());
+        fs::remove_dir_all(&temp)?;
+        Ok(())
+    }
+
+    #[test]
+    fn status_text_wraps_on_word_boundaries() {
+        let lines = wrap_status("alpha beta gamma delta", 11);
+        assert_eq!(lines, vec!["alpha beta", "gamma delta"]);
+        assert!(wrap_status("", 10).is_empty());
+        assert_eq!(wrap_status("superlongword", 4), vec!["superlongword"]);
     }
 
     #[test]
