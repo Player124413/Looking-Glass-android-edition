@@ -1014,13 +1014,18 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
         }
         frame = frame.wrapping_add(1);
         let (w, h) = (screen_width(), screen_height());
-        let s = (h / 720.).clamp(0.65, 2.2).min(w / 960.);
+        // UI scale: tuned for the ~540-720px tall render buffer used on phones,
+        // so text stays large enough; the panel (520 design units tall) always fits.
+        let s = (h / 540.)
+            .clamp(0.65, 2.4)
+            .min(w / 960.)
+            .min((h - 24.).max(200.) / 520.);
         clear_background(Color::from_hex(0x141118));
         let panel = Rect::new(
             (w - 880. * s).max(20.) * 0.5,
-            (h - 610. * s).max(16.) * 0.5,
+            (h - 520. * s).max(16.) * 0.5,
             (w - 40.).min(880. * s),
-            (h - 32.).min(610. * s),
+            (h - 32.).min(520. * s),
         );
         draw_rectangle(panel.x, panel.y, panel.w, panel.h, Color::from_hex(0x221b29));
         draw_rectangle_lines(
@@ -1197,7 +1202,10 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     prefs.performance_preset = preset;
                     set_active_preset(preset);
                     let _ = prefs.save();
-                    status = format!("Graphics Preset set to {} (saved).", preset.name());
+                    status = format!(
+                        "Graphics Preset set to {} (saved). Picture sharpness changes after you close and reopen the app.",
+                        preset.name()
+                    );
                 }
             }
 

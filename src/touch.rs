@@ -971,18 +971,18 @@ impl TouchState {
                 ui.center(
                     b.label,
                     Rect::new(rect.x + 4. * s, rect.y + 4. * s, rect.w - 8. * s, rect.h - 8. * s),
-                    (16. * s).clamp(11., 28.),
+                    (21. * s).clamp(13., 40.),
                     btn_text,
                 );
             } else {
                 draw_circle(b.center.x, b.center.y, b.radius, fill);
                 draw_circle_lines(b.center.x, b.center.y, b.radius, 2.2 * s, ring);
                 let w = b.radius * 1.65;
-                let h = 20. * s;
+                let h = 28. * s;
                 ui.center(
                     b.label,
                     Rect::new(b.center.x - w * 0.5, b.center.y - h * 0.5, w, h),
-                    (16.5 * s).clamp(11., 28.),
+                    (21. * s).clamp(13., 40.),
                     btn_text,
                 );
             }
@@ -1018,7 +1018,7 @@ impl TouchEditor {
     pub fn update_and_draw(&mut self, prefs: &mut Preferences) -> bool {
         let (w, h) = (screen_width().max(320.), screen_height().max(240.));
         let screen = vec2(w, h);
-        let s = (h / 720.).clamp(0.65, 2.2).min(w / 960.);
+        let s = (h / 540.).clamp(0.65, 2.4).min(w / 900.);
         clear_background(Color::from_hex(0x110e15));
 
         // Draw subtle alignment grid & center axes.
@@ -1225,8 +1225,13 @@ impl TouchEditor {
                 if active { 2.6 * s } else { 1.4 * s },
                 border_c,
             );
-            let fs = (16. * s).round();
-            let tw = measure_text(text, None, fs as u16, 1.0).width;
+            let mut fs = (16. * s).round();
+            let mut tw = measure_text(text, None, fs as u16, 1.0).width;
+            let max_w = (rect.w - 8. * s).max(8.);
+            if tw > max_w {
+                fs = (fs * max_w / tw).floor().max(9.);
+                tw = measure_text(text, None, fs as u16, 1.0).width;
+            }
             draw_text(
                 text,
                 rect.center().x - tw * 0.5,
