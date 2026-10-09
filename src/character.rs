@@ -237,7 +237,7 @@ impl Animator {
         };
         // A lift can carry the body while Alice stands still. Only her own
         // controller velocity selects a gait; resolved travel still sets its pace.
-        let speed = if player.velocity.truncate().length() > 12. {
+        let speed = if player.velocity.truncate().length() > 1. {
             displacement.truncate().length() / dt
         } else {
             0.
@@ -279,9 +279,9 @@ impl Animator {
             } else {
                 Motion::Air
             }
-        } else if speed > 12.
+        } else if speed > 1.
             || (dt < crate::movement::FIXED_DT
-                && player.velocity.truncate().length() > 12.
+                && player.velocity.truncate().length() > 1.
                 && matches!(self.motion, Motion::Walk | Motion::Run))
         {
             if running {
@@ -2099,30 +2099,81 @@ pub fn check_movement(assets: &mut Assets) -> Result<()> {
             reference = Some(phase);
         }
     }
-    for hz in [30, 60, 144] {
-        let world = World::fixture(&[(vec3(-1000., -1000., -100.), vec3(1000., 1000., 0.))]);
-        let mut p = Player::new(vec3(0., 0., 0.1));
-        let mut clock = crate::movement::FixedClock::default();
-        a.reset(&p);
-        for i in 0..hz {
-            clock.advance(
-                1. / hz as f64,
-                &world,
-                &mut p,
-                Controls {
-                    wish: Vec2::X,
-                    ..Default::default()
-                },
-            );
-            a.update(1. / hz as f32, &p, false);
-            if i > hz / 4 {
+    for (unarmed, large, index) in [(true, false, 1), (false, false, 7), (false, true, 9)] {
+        a.unarmed = unarmed;
+        a.large = large;
+        println!(
+            "Walk {}: {:.3} units in {:.3} s",
+            CLIPS[index],
+            a.clips[index].distance,
+            a.duration(index)
+        );
+        for fraction in [0.125, 0.25, 0.5, 1., 2.] {
+            let mut reference: Option<f32> = None;
+            for hz in [30, 60, 144] {
+                let world =
+                    World::fixture(&[(vec3(-2000., -2000., -100.), vec3(2000., 2000., 0.))]);
+                let mut p = Player::new(vec3(0., 0., 0.1));
+                p.grounded = true;
+                p.tea = fraction > 1.;
+                p.velocity.x = crate::movement::WALK_SPEED * fraction;
+                let mut clock = crate::movement::FixedClock::default();
+                a.reset(&p);
+                let mut elapsed = 0.;
+                // Compare brisk cadence with real travel, including slow analog
+                // input and render frames without a physics tick.
+                for _ in 0..hz * 8 {
+                    clock.advance(
+                        1. / hz as f64,
+                        &world,
+                        &mut p,
+                        Controls {
+                            wish: Vec2::X * fraction.min(1.),
+                            ..Default::default()
+                        },
+                    );
+                    a.update(1. / hz as f32, &p, false);
+                    if clock.ticks > 0 {
+                        ensure!(
+                            a.motion == Motion::Walk && a.sound_clip == Some(index),
+                            "Gait stopped between physics ticks at {hz} Hz"
+                        );
+                        let span = a.sound_span.unwrap().1;
+                        elapsed += span.end - span.start;
+                    }
+                }
                 ensure!(
-                    a.motion == Motion::Walk,
-                    "Gait stopped between physics ticks at {hz} Hz"
+                    (p.feet.x - 8. * crate::movement::WALK_SPEED * fraction).abs() < 0.1,
+                    "Walking speed changed at {hz} Hz"
                 );
+                let clip = &a.clips[index];
+                let expected = clip.advance_distance(0., p.feet.x / a.scale, false);
+                ensure!(
+                    (elapsed - expected).abs() < 0.002,
+                    "{} stride slipped at {fraction} input, {hz} Hz: {elapsed} vs {expected}",
+                    CLIPS[index]
+                );
+                // Per-frame root curves are uneven (including stationary frames).
+                // Check average playback over a complete stride, not the phase of
+                // the short partial stride left at the end of this controller run.
+                let rate = p.velocity.x / a.scale / clip.distance * clip.duration();
+                ensure!(
+                    (rate / (2. * fraction) - 1.).abs() < 0.02,
+                    "{} full-stride cadence is {rate} at {fraction} input",
+                    CLIPS[index]
+                );
+                if let Some(previous) = reference {
+                    ensure!(
+                        (elapsed - previous).abs() < 0.002,
+                        "Walk cadence depends on render rate"
+                    );
+                }
+                reference = Some(elapsed);
             }
         }
     }
+    a.unarmed = false;
+    a.large = false;
     let floor = (vec3(-2000., -2000., -100.), vec3(2000., 2000., 0.));
     let wall = World::fixture(&[floor, (vec3(180., -1000., 0.), vec3(200., 1000., 300.))]);
     let mut p = Player::new(vec3(0., 0., 0.1));
@@ -2603,6 +2654,76 @@ mod tests {
                 })
                 .collect(),
         )
+    }
+    #[test]
+    fn walking_cadence_tracks_resolved_speed_in_every_equipment_pose() {
+        for (unarmed, large, index) in [(true, false, 1), (false, false, 7), (false, true, 9)] {
+            for fraction in [0.05, 0.125, 0.25, 0.5, 1., 2.] {
+                let mut a = animator();
+                a.unarmed = unarmed;
+                a.large = large;
+                // A one-second walk with the short root travel from issue #2.
+                a.clips[index].distance = 51.7;
+                let mut p = Player::new(Vec3::ZERO);
+                p.grounded = true;
+                p.velocity = Vec3::X * crate::movement::WALK_SPEED * fraction;
+                a.reset(&p);
+                let mut elapsed = 0.;
+                for _ in 0..120 {
+                    p.feet += p.velocity / 120.;
+                    a.update(1. / 120., &p, false);
+                    assert_eq!(a.sound_clip, Some(index));
+                    let span = a.sound_span.unwrap().1;
+                    elapsed += span.end - span.start;
+                }
+                assert!(
+                    (elapsed / (2. * fraction) - 1.).abs() < 0.02,
+                    "{} at {fraction} speed advanced {elapsed} seconds",
+                    CLIPS[index]
+                );
+                // Requested movement against a wall must not keep the legs stepping.
+                a.update(1. / 120., &p, false);
+                assert_eq!(a.motion, Motion::Idle);
+            }
+        }
+    }
+    #[test]
+    fn walking_equipment_and_run_changes_preserve_stride_and_save_continuation() {
+        let mut a = animator();
+        a.unarmed = true;
+        a.clips[1].distance = 51.7;
+        a.clips[9].frame_time = 0.04;
+        let mut p = Player::new(Vec3::ZERO);
+        p.grounded = true;
+        p.velocity = Vec3::X * crate::movement::WALK_SPEED;
+        a.reset(&p);
+        p.feet.x = a.clips[1].distance * 0.25;
+        a.update(0.25, &p, false);
+        assert!((a.time - 0.25).abs() < 0.001);
+        a.unarmed = false;
+        a.large = true;
+        // A render-only frame switches equipment without consuming another step.
+        a.update(1. / 144., &p, false);
+        assert!((a.time / a.duration(9) - 0.25).abs() < 0.001);
+        assert!(!a.sound_span.unwrap().1.entered);
+        a.update(1. / 144., &p, true);
+        assert!((a.time / a.duration(10) - 0.25).abs() < 0.001);
+        p.feet.x += 10.;
+        a.update(0.05, &p, true);
+        // Running still uses authored distance: this fixture travels 100 units/cycle.
+        assert!((a.time - 0.35).abs() < 0.001);
+        a.update(1. / 144., &p, false);
+        assert!((a.time / a.duration(9) - 0.35).abs() < 0.001);
+        let saved = a.snapshot();
+        a.update(0., &p, false);
+        assert!(a.sound_span.is_none());
+        assert_eq!(a.time, saved.time);
+        p.feet.x += 10.;
+        a.update(0.05, &p, false);
+        let expected = serde_json::to_vec(&a.snapshot()).unwrap();
+        a.restore(&saved);
+        a.update(0.05, &p, false);
+        assert_eq!(expected, serde_json::to_vec(&a.snapshot()).unwrap());
     }
     #[test]
     fn rope_cycle_uses_both_hands_and_only_distance_along_rope() {
