@@ -1106,7 +1106,7 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             }
             y += 4. * s;
             let status_lines = wrap_status(&status, 78);
-            for (i, line) in status_lines.iter().take(3).enumerate() {
+            for (i, line) in status_lines.iter().take(4).enumerate() {
                 draw_text(
                     line,
                     x,
@@ -1115,7 +1115,7 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     Color::from_hex(if data_ready { 0x82e0aa } else { 0xe59866 }),
                 );
             }
-            y += (status_lines.len().clamp(1, 3) as f32 - 1.) * 22. * s;
+            y += (status_lines.len().clamp(1, 4) as f32 - 1.) * 22. * s;
 
             // FPS Limit Selector Row (30 FPS / 60 FPS / Unlimited)
             let fps_y = y + 18. * s;

@@ -293,6 +293,9 @@ public class MainActivity extends Activity {
     private static Throwable libraryLoadError = null;
     private static boolean nativeStarted = false;
 
+    private static final String ZIP_HINT =
+            "The archive may be damaged or use unsupported compression. Re-download it, re-pack"
+                    + " the zip with Deflate/Store, or select the .pk3 files directly.";
     private static final String TELEGRAM_URL = "https://t.me/player1444ports";
     private static final String ORIGINAL_REPO_URL = "https://github.com/skulitom/LookingGlass";
     private static final String PORT_REPO_RELEASES_API =
@@ -1836,12 +1839,32 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        try {
-            return extractPk3FromZipStream(resolver, zipUri, zipName, baseDir);
-        } catch (java.util.zip.ZipException e) {
-            Log.w("LookingGlass", "Streaming zip read failed, retrying from a local copy", e);
-            return extractPk3FromZipViaTempCopy(resolver, zipUri, zipName, baseDir);
+        // Scoped storage often forbids re-opening the picked file by path. Copy it next to the
+        // game data and read it with ZipFile; this is far more reliable than forward-only
+        // streaming (which fails on Zip64 / data-descriptor archives with errors such as
+        // "invalid code lengths set").
+        long zipSize = queryDocumentSize(resolver, zipUri);
+        File parent = baseDir.getParentFile() != null ? baseDir.getParentFile() : baseDir;
+        boolean roomForCopy = zipSize < 0 || parent.getUsableSpace() > zipSize + 64L * 1024L * 1024L;
+        if (roomForCopy) {
+            try {
+                return extractPk3FromZipViaTempCopy(resolver, zipUri, zipName, baseDir);
+            } catch (java.util.zip.ZipException e) {
+                Log.w("LookingGlass", "ZipFile could not read the local copy, trying streaming", e);
+            }
         }
+        return extractPk3FromZipStream(resolver, zipUri, zipName, baseDir);
+    }
+
+    private long queryDocumentSize(ContentResolver resolver, Uri uri) {
+        try (Cursor cursor =
+                resolver.query(uri, new String[] {OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                return cursor.getLong(0);
+            }
+        } catch (Exception ignored) {
+        }
+        return -1L;
     }
 
     /** Opens the picked document as a random-access ZipFile, or returns null if not possible. */
@@ -1866,8 +1889,7 @@ public class MainActivity extends Activity {
     }
 
     private int extractPk3FromZipFile(ZipFile zf, String zipName, File baseDir) throws Exception {
-        int extracted = 0;
-        byte[] buffer = new byte[256 * 1024];
+        List<ZipEntry> packs = new ArrayList<>();
         Enumeration<? extends ZipEntry> entries = zf.entries();
         while (entries.hasMoreElements()) {
             ZipEntry entry = entries.nextElement();
@@ -1878,8 +1900,33 @@ public class MainActivity extends Activity {
             if (!entryName.toLowerCase(Locale.ROOT).endsWith(".pk3")) {
                 continue;
             }
+            int method = entry.getMethod();
+            if (method != ZipEntry.STORED && method != ZipEntry.DEFLATED) {
+                // Fail before touching any file so a half-imported set is never left behind.
+                throw new IllegalStateException(
+                        entryName
+                                + " in "
+                                + zipName
+                                + " uses unsupported compression (method "
+                                + method
+                                + ", e.g. Deflate64). "
+                                + ZIP_HINT);
+            }
+            packs.add(entry);
+        }
+        byte[] buffer = new byte[256 * 1024];
+        int extracted = 0;
+        for (ZipEntry entry : packs) {
+            String entryName = new File(entry.getName()).getName();
             try (InputStream in = zf.getInputStream(entry)) {
-                writePk3Entry(in, entryName, zipName, baseDir, buffer);
+                long written = writePk3Entry(in, entryName, zipName, baseDir, buffer);
+                long expected = entry.getSize();
+                if (expected >= 0 && written != expected) {
+                    new File(baseDir, sanitizeFileName(entryName)).delete();
+                    throw new IllegalStateException(
+                            entryName + " is incomplete (" + written + " of " + expected
+                                    + " bytes). " + ZIP_HINT);
+                }
                 extracted++;
             }
         }
@@ -1933,7 +1980,7 @@ public class MainActivity extends Activity {
     }
 
     /** Writes one .pk3 stream to baseDir atomically (.part file, then rename). */
-    private void writePk3Entry(
+    private long writePk3Entry(
             InputStream in, String entryName, String zipName, File baseDir, byte[] buffer)
             throws Exception {
         String safeName = sanitizeFileName(entryName);
@@ -1964,6 +2011,12 @@ public class MainActivity extends Activity {
                 throw new IllegalStateException("Could not finalize " + safeName);
             }
             done = true;
+            return bytes;
+        } catch (java.util.zip.ZipException e) {
+            throw new IllegalStateException(
+                    "Cannot unpack " + safeName + " from " + zipName + ": " + e.getMessage()
+                            + ". " + ZIP_HINT,
+                    e);
         } finally {
             if (!done) {
                 tmpFile.delete();
