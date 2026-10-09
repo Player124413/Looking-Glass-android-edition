@@ -6,6 +6,17 @@ Version 0.15.1 repairs rotated brush bevels, upright riders on tipping shelves a
 
 Version 0.2, 27 September 2026. This controller is newly authored Rust using general convex geometry. It does not call or translate the original game's movement functions. Its speeds, body dimensions and jump values are provisional.
 
+## Walking cadence correction (October 2026)
+
+Walking now targets 104 units/s for a brisk pace: roughly two cycles per second
+for Alice's walking clips (51.3-51.7 units per cycle). The original 210-unit
+prototype target below made those clips play about four times too fast.
+Animation continues to follow actual collision-resolved travel, keeping the
+body and feet in step. Slow analog input animates down to 1 unit/s. Running
+remains 320 units/s; swimming, acceleration, jump impulse and collision handling
+are unchanged. Walking jumps cover less horizontal distance; use the run
+modifier for longer jumps.
+
 ## Collision data
 
 The BSP reader now consumes planes (lump 1, 16 bytes), brush sides (lump 10, 8 bytes), brushes (lump 11, 12 bytes), and the world model's first-brush/count values at offsets 32/36. A material's contents mask is at byte 68 of its 76-byte record. It validates finite near-unit normals and all side, plane, shader and brush range references.
