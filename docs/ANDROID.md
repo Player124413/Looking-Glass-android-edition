@@ -12,8 +12,9 @@ Looking Glass does **not** include any proprietary *American McGee's Alice* game
 2. Launch **Looking Glass**. The built-in **Android Launcher** opens with a short, uncluttered screen:
    - **Top bar**: **Port by Player1444 (TG)** (opens the Telegram channel), **Check Updates** and **Credits**.
    - **FPS Limit**: `30 FPS`, `60 FPS` or `Unlimited`.
-   - **Graphics**: `Auto`, `Quality`, `Balanced` or `Performance`. Besides the effects below it sets the render resolution (short side): `Performance` 540p, `Auto`/`Balanced` 720p, `Quality` native (up to 1080p). The resolution is applied when the app is reopened.
+   - **Graphics**: `Auto`, `Quality`, `Balanced` or `Performance`.
    - **Controls**: `Touch: Auto`, `Touch: ON` or `Touch: OFF (Pad)` (plus **Edit Touch HUD** to arrange the on-screen buttons).
+   - **Sharpness**: the launcher is drawn at (almost) native screen resolution (up to 1080p on the short side) with large text; when the game starts, the render buffer switches to the game's usual 540p buffer, so gameplay performance is unchanged.
    - **Choose Game Folder**: Opens Android's native system folder chooser (`ACTION_OPEN_DOCUMENT_TREE`). Pick your downloaded `Alice` or `base/` folder anywhere on your phone, SD card, or USB drive, and Looking Glass copies all `*.pk3` files into `/sdcard/Android/data/com.lookingglass.alice/files/base/`.
    - **Select PK3 / ZIP**: Opens Android's native file chooser (`ACTION_OPEN_DOCUMENT`) so you can select the `.pk3` files or a `.zip` archive of the game; Looking Glass copies or extracts the `.pk3` archives directly into `base/`. `.7z` / `.rar` archives are not supported - extract them first.
    - **START GAME**: Mounts the game files and starts. The game only starts when the complete set of archives is present: `pak0.pk3`, `pak1_large.pk3`, `pak2.pk3`, `pak3.pk3`, `pak4_english.pk3` and `pak5_mod.pk3`. If something is missing (for example `pak2.pk3`), the launcher lists exactly which files are missing instead of failing later in the game.

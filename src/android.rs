@@ -720,6 +720,12 @@ pub fn show_credits_dialog() -> bool {
     call_activity_void("showCreditsDialog")
 }
 
+/// Ask the activity to drop the render buffer from the sharp launcher size to the game's
+/// 540p size (`MainActivity.enterGameRenderMode()`). Returns `true` when the call was made.
+pub fn enter_game_render_mode() -> bool {
+    call_activity_void("enterGameRenderMode")
+}
+
 /// Trigger an asynchronous GitHub update check (`MainActivity.checkForUpdates()`).
 pub fn check_for_updates() -> bool {
     call_activity_void("checkForUpdates")
@@ -939,6 +945,37 @@ fn initial_browse_dir(root: &Path) -> PathBuf {
 /// Lets the user pick a game folder or PK3/ZIP archive (via Android's native system picker
 /// or the built-in folder browser) and automatically copies the archives into `<root>/base`.
 pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
+    let assets = wait_for_data_inner(initial).await?;
+    // The launcher is drawn in a sharp, (almost) native-resolution buffer. The game itself keeps
+    // running in the small buffer it was tuned for, so switch before it starts.
+    if enter_game_render_mode() {
+        let start = std::time::Instant::now();
+        while macroquad::prelude::screen_width().min(macroquad::prelude::screen_height()) > 600.
+            && start.elapsed() < std::time::Duration::from_millis(2500)
+        {
+            clear_background(BLACK);
+            next_frame().await;
+        }
+        // Let the new buffer settle for a few frames before the game allocates render targets.
+        for _ in 0..3 {
+            clear_background(BLACK);
+            next_frame().await;
+        }
+    }
+    Ok(assets)
+}
+
+/// Draws launcher text, shrinking it (never growing it) so it fits into `max_w` pixels.
+fn draw_text_fit(text: &str, x: f32, y: f32, size: f32, max_w: f32, color: Color) {
+    let mut fs = size.round().max(8.);
+    let width = measure_text(text, None, fs as u16, 1.0).width;
+    if width > max_w && width > 0. {
+        fs = (fs * max_w / width).floor().max(8.);
+    }
+    draw_text(text, x, y, fs, color);
+}
+
+async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
     let root = storage_root();
     prepare_directories(&root);
     clear_import_status(&root);
@@ -1014,18 +1051,18 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
         }
         frame = frame.wrapping_add(1);
         let (w, h) = (screen_width(), screen_height());
-        // UI scale: tuned for the ~540-720px tall render buffer used on phones,
-        // so text stays large enough; the panel (520 design units tall) always fits.
-        let s = (h / 540.)
+        // UI scale: the launcher renders at (almost) native resolution; the panel is
+        // 960x560 design units and always fits the screen.
+        let s = (h / 560.)
             .clamp(0.65, 2.4)
-            .min(w / 960.)
-            .min((h - 24.).max(200.) / 520.);
+            .min(w / 1000.)
+            .min((h - 24.).max(200.) / 560.);
         clear_background(Color::from_hex(0x141118));
         let panel = Rect::new(
-            (w - 880. * s).max(20.) * 0.5,
-            (h - 520. * s).max(16.) * 0.5,
-            (w - 40.).min(880. * s),
-            (h - 32.).min(520. * s),
+            (w - 960. * s).max(20.) * 0.5,
+            (h - 560. * s).max(16.) * 0.5,
+            (w - 40.).min(960. * s),
+            (h - 32.).min(560. * s),
         );
         draw_rectangle(panel.x, panel.y, panel.w, panel.h, Color::from_hex(0x221b29));
         draw_rectangle_lines(
@@ -1045,19 +1082,20 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             });
 
         let x = panel.x + 26. * s;
-        let mut y = panel.y + 34. * s;
-        draw_text(
+        let mut y = panel.y + 84. * s;
+        draw_text_fit(
             "Looking Glass - Android Launcher",
             x,
             y,
-            (26. * s).round(),
+            30. * s,
+            panel.w - 52. * s,
             Color::from_hex(0xf3e5c8),
         );
 
         let top_btn_y = panel.y + 10. * s;
-        let tg_btn = Rect::new(panel.right() - 486. * s, top_btn_y, 206. * s, 32. * s);
-        let upd_btn = Rect::new(panel.right() - 272. * s, top_btn_y, 152. * s, 32. * s);
-        let info_btn = Rect::new(panel.right() - 112. * s, top_btn_y, 94. * s, 32. * s);
+        let tg_btn = Rect::new(panel.right() - 568. * s, top_btn_y, 250. * s, 38. * s);
+        let upd_btn = Rect::new(panel.right() - 308. * s, top_btn_y, 170. * s, 38. * s);
+        let info_btn = Rect::new(panel.right() - 128. * s, top_btn_y, 110. * s, 38. * s);
         for (rect, label, fill, border) in [
             (
                 tg_btn,
@@ -1080,11 +1118,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
         ] {
             draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
             draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, 1.5 * s, border);
-            draw_text(
+            draw_text_fit(
                 label,
                 rect.x + 10. * s,
-                rect.y + 22. * s,
-                (16. * s).round(),
+                rect.y + 26. * s,
+                18. * s,
+                rect.w - 16. * s,
                 WHITE,
             );
         }
@@ -1098,7 +1137,7 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             let _ = show_credits_dialog();
         }
 
-        y += 26. * s;
+        y += 30. * s;
 
         if !browsing {
             for line in [
@@ -1106,33 +1145,42 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 "Needs: pak0, pak1_large, pak2, pak3, pak4_english, pak5_mod (.pk3)",
                 &format!("Game files folder: {}", root.join("base").display()),
             ] {
-                draw_text(line, x, y, (17. * s).round(), Color::from_hex(0xd8cbb8));
-                y += 22. * s;
-            }
-            y += 4. * s;
-            let status_lines = wrap_status(&status, 78);
-            for (i, line) in status_lines.iter().take(4).enumerate() {
-                draw_text(
+                draw_text_fit(
                     line,
                     x,
-                    y + i as f32 * 22. * s,
-                    (18. * s).round(),
+                    y,
+                    20. * s,
+                    panel.w - 52. * s,
+                    Color::from_hex(0xd8cbb8),
+                );
+                y += 25. * s;
+            }
+            y += 4. * s;
+            let status_lines = wrap_status(&status, 66);
+            for (i, line) in status_lines.iter().take(4).enumerate() {
+                draw_text_fit(
+                    line,
+                    x,
+                    y + i as f32 * 24. * s,
+                    21. * s,
+                    panel.w - 52. * s,
                     Color::from_hex(if data_ready { 0x82e0aa } else { 0xe59866 }),
                 );
             }
-            y += (status_lines.len().clamp(1, 4) as f32 - 1.) * 22. * s;
+            y += (status_lines.len().clamp(1, 4) as f32 - 1.) * 24. * s;
 
             // FPS Limit Selector Row (30 FPS / 60 FPS / Unlimited)
             let fps_y = y + 18. * s;
-            draw_text(
+            draw_text_fit(
                 "FPS Limit:",
                 x,
-                fps_y + 28. * s,
-                (20. * s).round(),
+                fps_y + 31. * s,
+                23. * s,
+                140. * s,
                 Color::from_hex(0xf3e5c8),
             );
             for (i, mode) in FpsLimit::ALL.into_iter().enumerate() {
-                let btn = Rect::new(x + 145. * s + i as f32 * 180. * s, fps_y, 165. * s, 40. * s);
+                let btn = Rect::new(x + 150. * s + i as f32 * 190. * s, fps_y, 180. * s, 44. * s);
                 let active = prefs.fps_limit == mode;
                 draw_rectangle(
                     btn.x,
@@ -1149,11 +1197,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     if active { 3. * s } else { 1.5 * s },
                     Color::from_hex(if active { 0xf5cba7 } else { 0x7c6750 }),
                 );
-                draw_text(
+                draw_text_fit(
                     mode.name(),
-                    btn.x + 22. * s,
-                    btn.y + 27. * s,
-                    (19. * s).round(),
+                    btn.x + 20. * s,
+                    btn.y + 30. * s,
+                    22. * s,
+                    btn.w - 30. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
                 if pointer.is_some_and(|p| btn.contains(p)) {
@@ -1165,16 +1214,17 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             }
 
             // Graphics Preset Selector Row (Auto / Quality / Balanced / Performance)
-            let preset_y = fps_y + 48. * s;
-            draw_text(
+            let preset_y = fps_y + 52. * s;
+            draw_text_fit(
                 "Graphics:",
                 x,
-                preset_y + 28. * s,
-                (20. * s).round(),
+                preset_y + 31. * s,
+                23. * s,
+                140. * s,
                 Color::from_hex(0xf3e5c8),
             );
             for (i, preset) in PerformancePreset::ALL.into_iter().enumerate() {
-                let btn = Rect::new(x + 145. * s + i as f32 * 158. * s, preset_y, 146. * s, 40. * s);
+                let btn = Rect::new(x + 150. * s + i as f32 * 178. * s, preset_y, 168. * s, 44. * s);
                 let active = prefs.performance_preset == preset;
                 draw_rectangle(
                     btn.x,
@@ -1191,31 +1241,30 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     if active { 3. * s } else { 1.5 * s },
                     Color::from_hex(if active { 0xe8daef } else { 0x7c6750 }),
                 );
-                draw_text(
+                draw_text_fit(
                     preset.name(),
-                    btn.x + 16. * s,
-                    btn.y + 27. * s,
-                    (18. * s).round(),
+                    btn.x + 14. * s,
+                    btn.y + 30. * s,
+                    21. * s,
+                    btn.w - 24. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
                 if pointer.is_some_and(|p| btn.contains(p)) {
                     prefs.performance_preset = preset;
                     set_active_preset(preset);
                     let _ = prefs.save();
-                    status = format!(
-                        "Graphics Preset set to {} (saved). Picture sharpness changes after you close and reopen the app.",
-                        preset.name()
-                    );
+                    status = format!("Graphics Preset set to {} (saved).", preset.name());
                 }
             }
 
             // Touch Controls & Gamepad Mode Row (Touch Auto / On / Off + Edit Touch HUD)
-            let ctrl_y = preset_y + 48. * s;
-            draw_text(
+            let ctrl_y = preset_y + 52. * s;
+            draw_text_fit(
                 "Controls:",
                 x,
-                ctrl_y + 28. * s,
-                (20. * s).round(),
+                ctrl_y + 31. * s,
+                23. * s,
+                140. * s,
                 Color::from_hex(0xf3e5c8),
             );
             for (i, (mode, label)) in [
@@ -1226,7 +1275,7 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
             .into_iter()
             .enumerate()
             {
-                let btn = Rect::new(x + 145. * s + i as f32 * 152. * s, ctrl_y, 142. * s, 40. * s);
+                let btn = Rect::new(x + 150. * s + i as f32 * 178. * s, ctrl_y, 168. * s, 44. * s);
                 let active = prefs.touch_mode == mode;
                 let fill = if active {
                     if mode == crate::touch::TouchMode::Off {
@@ -1246,11 +1295,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     if active { 3. * s } else { 1.5 * s },
                     Color::from_hex(if active { 0xf5cba7 } else { 0x7c6750 }),
                 );
-                draw_text(
+                draw_text_fit(
                     label,
                     btn.x + 12. * s,
-                    btn.y + 27. * s,
-                    (17. * s).round(),
+                    btn.y + 30. * s,
+                    20. * s,
+                    btn.w - 20. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
                 if pointer.is_some_and(|p| btn.contains(p)) {
@@ -1263,7 +1313,7 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     };
                 }
             }
-            let edit_hud_btn = Rect::new(x + 145. * s + 3. * 152. * s, ctrl_y, 180. * s, 40. * s);
+            let edit_hud_btn = Rect::new(x + 150. * s + 3. * 178. * s, ctrl_y, 200. * s, 44. * s);
             draw_rectangle(
                 edit_hud_btn.x,
                 edit_hud_btn.y,
@@ -1279,11 +1329,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 2. * s,
                 Color::from_hex(0x85c1e9),
             );
-            draw_text(
+            draw_text_fit(
                 "Edit Touch HUD",
-                edit_hud_btn.x + 16. * s,
-                edit_hud_btn.y + 27. * s,
-                (18. * s).round(),
+                edit_hud_btn.x + 14. * s,
+                edit_hud_btn.y + 30. * s,
+                20. * s,
+                edit_hud_btn.w - 24. * s,
                 WHITE,
             );
             if pointer.is_some_and(|p| edit_hud_btn.contains(p)) {
@@ -1292,11 +1343,11 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 continue;
             }
 
-            let row1_y = panel.bottom() - 122. * s;
-            let row2_y = panel.bottom() - 62. * s;
-            let folder_btn = Rect::new(x, row1_y, 330. * s, 46. * s);
-            let file_btn = Rect::new(x + 346. * s, row1_y, 330. * s, 46. * s);
-            let scan_btn = Rect::new(x, row2_y, 676. * s, 46. * s);
+            let row1_y = panel.bottom() - 128. * s;
+            let row2_y = panel.bottom() - 66. * s;
+            let folder_btn = Rect::new(x, row1_y, 446. * s, 50. * s);
+            let file_btn = Rect::new(x + 462. * s, row1_y, 446. * s, 50. * s);
+            let scan_btn = Rect::new(x, row2_y, 908. * s, 50. * s);
 
             for (rect, label, fill) in [
                 (folder_btn, "Choose Game Folder", Color::from_hex(0x6e352c)),
@@ -1316,11 +1367,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     2. * s,
                     Color::from_hex(0xc9a97c),
                 );
-                draw_text(
+                draw_text_fit(
                     label,
-                    rect.x + 16. * s,
-                    rect.y + 32. * s,
-                    (21. * s).round(),
+                    rect.x + 18. * s,
+                    rect.y + 35. * s,
+                    25. * s,
+                    rect.w - 30. * s,
                     WHITE,
                 );
             }
@@ -1361,26 +1413,28 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 }
             }
         } else {
-            draw_text(
+            draw_text_fit(
                 &format!("Current Folder: {}", browse_dir.display()),
                 x,
                 y,
-                (19. * s).round(),
+                22. * s,
+                panel.w - 52. * s,
                 Color::from_hex(0xd8cbb8),
             );
-            y += 26. * s;
-            draw_text(
+            y += 28. * s;
+            draw_text_fit(
                 &status,
                 x,
                 y,
-                (18. * s).round(),
+                21. * s,
+                panel.w - 52. * s,
                 Color::from_hex(0xe59866),
             );
-            y += 14. * s;
+            y += 16. * s;
 
             let subdirs = list_browsable_subdirs(&browse_dir);
             let max_rows = 6usize;
-            let row_h = 40. * s;
+            let row_h = 44. * s;
             let list_w = panel.w - 52. * s;
 
             for idx in 0..max_rows {
@@ -1408,11 +1462,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     .and_then(|n| n.to_str())
                     .unwrap_or("folder");
                 let badge = if has_pk3 { "  [PK3 FOUND]" } else { "" };
-                draw_text(
+                draw_text_fit(
                     &format!("[DIR] {name}{badge}"),
                     row_rect.x + 14. * s,
-                    row_rect.y + 26. * s,
-                    (20. * s).round(),
+                    row_rect.y + 30. * s,
+                    22. * s,
+                    row_rect.w - 28. * s,
                     WHITE,
                 );
                 if pointer.is_some_and(|p| row_rect.contains(p)) {
@@ -1421,12 +1476,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                 }
             }
 
-            let btn_y = panel.bottom() - 68. * s;
-            let up_btn = Rect::new(x, btn_y, 130. * s, 48. * s);
-            let prev_btn = Rect::new(x + 142. * s, btn_y, 110. * s, 48. * s);
-            let next_btn = Rect::new(x + 264. * s, btn_y, 110. * s, 48. * s);
-            let copy_btn = Rect::new(x + 386. * s, btn_y, 260. * s, 48. * s);
-            let back_btn = Rect::new(x + 658. * s, btn_y, 140. * s, 48. * s);
+            let btn_y = panel.bottom() - 72. * s;
+            let up_btn = Rect::new(x, btn_y, 150. * s, 52. * s);
+            let prev_btn = Rect::new(x + 162. * s, btn_y, 120. * s, 52. * s);
+            let next_btn = Rect::new(x + 294. * s, btn_y, 130. * s, 52. * s);
+            let copy_btn = Rect::new(x + 436. * s, btn_y, 300. * s, 52. * s);
+            let back_btn = Rect::new(x + 748. * s, btn_y, 150. * s, 52. * s);
 
             for (rect, label, fill) in [
                 (up_btn, ".. Parent", Color::from_hex(0x3c3144)),
@@ -1444,11 +1499,12 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
                     2. * s,
                     Color::from_hex(0xc9a97c),
                 );
-                draw_text(
+                draw_text_fit(
                     label,
                     rect.x + 14. * s,
-                    rect.y + 30. * s,
-                    (19. * s).round(),
+                    rect.y + 34. * s,
+                    22. * s,
+                    rect.w - 24. * s,
                     WHITE,
                 );
             }

@@ -971,18 +971,18 @@ impl TouchState {
                 ui.center(
                     b.label,
                     Rect::new(rect.x + 4. * s, rect.y + 4. * s, rect.w - 8. * s, rect.h - 8. * s),
-                    (21. * s).clamp(13., 40.),
+                    (16. * s).clamp(11., 28.),
                     btn_text,
                 );
             } else {
                 draw_circle(b.center.x, b.center.y, b.radius, fill);
                 draw_circle_lines(b.center.x, b.center.y, b.radius, 2.2 * s, ring);
                 let w = b.radius * 1.65;
-                let h = 28. * s;
+                let h = 20. * s;
                 ui.center(
                     b.label,
                     Rect::new(b.center.x - w * 0.5, b.center.y - h * 0.5, w, h),
-                    (21. * s).clamp(13., 40.),
+                    (16.5 * s).clamp(11., 28.),
                     btn_text,
                 );
             }

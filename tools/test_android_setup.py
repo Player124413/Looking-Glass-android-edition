@@ -90,6 +90,7 @@ class AndroidPortTest(unittest.TestCase):
             self.assertIn('System.loadLibrary("looking_glass");', repo_java)
             self.assertIn("LOOKING_GLASS_ANDROID_STORAGE", repo_java)
             self.assertIn("computeRenderSize", repo_java)
+            self.assertIn("enterGameRenderMode", repo_java)
 
     def test_package_bundle_writes_zip_and_sha256(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

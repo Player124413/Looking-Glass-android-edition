@@ -72,57 +72,20 @@ class QuadSurface extends SurfaceView
     private int surfaceWidth = 1194;
     private int surfaceHeight = 540;
 
-    /**
-     * Reads the Graphics preset the launcher saved into preferences.json
-     * ("auto", "quality", "balanced" or "performance"). Falls back to "auto".
-     */
-    private String readGraphicsPreset() {
-        try {
-            File dir = getContext().getExternalFilesDir(null);
-            if (dir == null) {
-                dir = getContext().getFilesDir();
-            }
-            File prefs = new File(dir, "preferences.json");
-            if (!prefs.isFile() || prefs.length() > 1024 * 1024) {
-                return "auto";
-            }
-            byte[] data = new byte[(int) prefs.length()];
-            try (java.io.FileInputStream in = new java.io.FileInputStream(prefs)) {
-                int off = 0;
-                while (off < data.length) {
-                    int n = in.read(data, off, data.length - off);
-                    if (n < 0) {
-                        break;
-                    }
-                    off += n;
-                }
-            }
-            java.util.regex.Matcher m =
-                    java.util.regex.Pattern.compile("\"performance_preset\"\\s*:\\s*\"([a-z]+)\"")
-                            .matcher(new String(data, StandardCharsets.UTF_8));
-            if (m.find()) {
-                return m.group(1);
-            }
-        } catch (Throwable ignored) {
-        }
-        return "auto";
-    }
+    // Render-buffer size. The launcher is drawn at (almost) native resolution so its text is
+    // sharp; once the game starts MainActivity.enterGameRenderMode() switches to the small
+    // 540p buffer the game has always used (the system scales it up).
+    private static final int LAUNCHER_SHORT_SIDE = 1080;
+    private static final int GAME_SHORT_SIDE = 540;
+    private volatile boolean gameRenderMode = false;
+    private SurfaceHolder currentHolder;
+    private int rawWidth = 0;
+    private int rawHeight = 0;
 
-    /**
-     * Picks the render-buffer size. A phone screen is far larger than what a weak GPU can
-     * shade at 60 FPS, so the game renders to a smaller buffer that the system scales up.
-     * Bigger buffer = sharper picture and text but slower:
-     * performance = 540p, auto/balanced = 720p, quality = native (up to 1080p).
-     */
-    private static int[] computeRenderSize(int rawWidth, int rawHeight, String preset) {
-        int targetShortSide = 720;
-        if ("performance".equals(preset)) {
-            targetShortSide = 540;
-        } else if ("quality".equals(preset)) {
-            targetShortSide = 1080;
-        }
+    private static int[] computeRenderSize(int rawWidth, int rawHeight, boolean gameMode) {
+        final int targetShortSide = gameMode ? GAME_SHORT_SIDE : LAUNCHER_SHORT_SIDE;
         if (rawWidth <= 0 || rawHeight <= 0) {
-            return new int[] {1280, 720};
+            return new int[] {1194, 540};
         }
         int shortSide = Math.min(rawWidth, rawHeight);
         if (shortSide <= targetShortSide) {
@@ -132,6 +95,34 @@ class QuadSurface extends SurfaceView
         int w = Math.max(2, Math.round(rawWidth * scale) & ~1);
         int h = Math.max(2, Math.round(rawHeight * scale) & ~1);
         return new int[] {w, h};
+    }
+
+    /** Switches from the sharp launcher buffer to the game's 540p buffer. UI thread only. */
+    public void applyGameRenderMode() {
+        gameRenderMode = true;
+        SurfaceHolder holder = currentHolder;
+        if (holder == null || rawWidth <= 0 || rawHeight <= 0) {
+            return;
+        }
+        Surface surface = holder.getSurface();
+        if (surface == null || !surface.isValid()) {
+            return;
+        }
+        int[] scaled = computeRenderSize(rawWidth, rawHeight, true);
+        if (scaled[0] == surfaceWidth && scaled[1] == surfaceHeight) {
+            return;
+        }
+        surfaceWidth = scaled[0];
+        surfaceHeight = scaled[1];
+        try {
+            hasActiveSurface = true;
+            // The native side applies the buffer geometry using the size it knew *before* this
+            // message, so announce the new size twice: the second call sets the final geometry.
+            QuadNative.surfaceOnSurfaceChanged(surface, surfaceWidth, surfaceHeight);
+            QuadNative.surfaceOnSurfaceChanged(surface, surfaceWidth, surfaceHeight);
+        } catch (Throwable t) {
+            MainActivity.reportStaticFatalError("Exception in applyGameRenderMode", t);
+        }
     }
 
     public QuadSurface(Context context) {
@@ -174,7 +165,10 @@ class QuadSurface extends SurfaceView
         if (surface == null || !surface.isValid()) {
             return;
         }
-        int[] scaled = computeRenderSize(width, height, readGraphicsPreset());
+        currentHolder = holder;
+        rawWidth = width;
+        rawHeight = height;
+        int[] scaled = computeRenderSize(width, height, gameRenderMode);
         surfaceWidth = scaled[0];
         surfaceHeight = scaled[1];
         try {
@@ -861,6 +855,19 @@ public class MainActivity extends Activity {
                             startActivity(intent);
                         } catch (Throwable t) {
                             writeImportStatus("IDLE", "Link: " + url);
+                        }
+                    }
+                });
+    }
+
+    /** Called from Rust when the game starts: drop the render buffer to the game's 540p size. */
+    public void enterGameRenderMode() {
+        runOnUiThread(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (view != null) {
+                            view.applyGameRenderMode();
                         }
                     }
                 });
