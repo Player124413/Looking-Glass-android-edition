@@ -1,4 +1,25 @@
-# First public preview
+# Walking cadence update
+
+**v0.32.0-preview.2**, 9 October 2026, follows the first Windows preview below.
+[Download and release notes](https://github.com/skulitom/LookingGlass/releases/tag/v0.32.0-preview.2).
+
+- Merges [PR #3](https://github.com/skulitom/LookingGlass/pull/3), addressing
+  [issue #2](https://github.com/skulitom/LookingGlass/issues/2).
+- Walking targets 104 units/s for a brisk pace, with animation still driven by
+  actual movement. Gentle stick input animates below the earlier threshold.
+  Running stays at 320 units/s; walking jumps cover less horizontal distance.
+- Save format 12 and original asset requirements are unchanged.
+- The Windows package is built from the tagged public source with a statically
+  linked C runtime. BUILD_INFO.json, MANIFEST.json and the attached source manifest
+  identify its commit, compiler, build inputs and hashes.
+- Validation covers unit tests, original animation data, native render/save
+  checks, the school physics check, village traversal and extracted-package
+  launch. This update has no new complete campaign replay, Steam Deck/Proton,
+  clean-account installation or audible-playback certification.
+- The release remains unsigned and experimental. As with preview.1, it is listed
+  as GitHub's Latest for download discoverability, not as a claim of stability.
+
+## First public preview (historical record)
 
 **v0.32.0-preview.1**, 1 October 2026, is the first experimental Windows x64 preview.
 [Repository](https://github.com/skulitom/LookingGlass) Â· [Release and download](https://github.com/skulitom/LookingGlass/releases/tag/v0.32.0-preview.1)

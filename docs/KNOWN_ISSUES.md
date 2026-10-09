@@ -1,6 +1,6 @@
 # Prerelease limitations
 
-These limitations apply to **v0.32.0-preview.1**, the first Windows public preview.
+These limitations apply to **v0.32.0-preview.2**, the experimental Windows public preview.
 
 - Five automated campaign lineages complete all 39 visits; only one is an
   uninterrupted fresh run. This is route evidence, not a full visual/audio
@@ -15,6 +15,9 @@ These limitations apply to **v0.32.0-preview.1**, the first Windows public previ
   behavior retain documented fidelity gaps in their subsystem notes.
 - Automated native tests used disabled audio. They do not certify audible
   mixing, clean-machine installation or every supported display/device.
+- Walking uses a brisk 104 units/s pace. Walking jumps cover less horizontal
+  distance than in preview.1; use the run modifier for longer jumps.
+- Steam Deck / Proton has not been verified for this update.
 - Current validation targets Windows x64 and the English 2011 vanilla data.
   Other editions, language/texture modifications and other platforms are not
   certified.
