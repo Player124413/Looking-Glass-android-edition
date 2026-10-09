@@ -10,11 +10,14 @@ permissions:
 
 jobs:
   android:
-    name: Build Android APK (ARM64)
+    name: Build Android APK (ARM64 + ARMv7)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          # Full history so the commit count (APK versionCode / visible version) grows per commit.
+          fetch-depth: 0
 
       - name: Audit source tree
         run: python3 tools/check_source.py --worktree
@@ -32,10 +35,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.86.0"
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Build signed Android APK & native bundle
-        run: python3 tools/package_android.py --target aarch64-linux-android --require-apk
+        run: python3 tools/package_android.py --target aarch64-linux-android --target armv7-linux-androideabi --require-apk
 
       - name: Upload Android APK & bundle artifact
         uses: actions/upload-artifact@v4

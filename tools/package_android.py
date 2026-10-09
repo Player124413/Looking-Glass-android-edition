@@ -141,7 +141,7 @@ To play on Android, copy your own original `base/*.pk3` archives onto your devic
 1. Install the APK
 ------------------
 Install `LookingGlass-v{version}-android.apk` on your Android phone or tablet
-(Android 8.0 / API 26 or newer, 64-bit ARM64 or x86_64, OpenGL ES 2.0+).
+(Android 8.0 / API 26 or newer, 64-bit ARM64, 32-bit ARMv7 or x86_64, OpenGL ES 2.0+).
 
 2. Launch Once to Create Folders
 --------------------------------
@@ -182,6 +182,25 @@ def _git_build_info() -> tuple[int, str]:
     commit_count = 0
     git_sha = "dev"
     try:
+        # A shallow clone (default CI checkout) reports a commit count of 1 forever, which
+        # would freeze versionCode. Deepen it so every new commit gets a higher build number.
+        shallow = subprocess.check_output(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if shallow == "true":
+            subprocess.run(
+                ["git", "fetch", "--unshallow", "--quiet"],
+                cwd=ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+    except Exception:
+        pass
+    try:
         out = subprocess.check_output(
             ["git", "rev-list", "--count", "HEAD"],
             cwd=ROOT,
@@ -211,13 +230,19 @@ def load_android_metadata() -> dict[str, object]:
     meta = dict(pkg.get("metadata", {}).get("android", {}))
     commit_count, git_sha = _git_build_info()
     base_version_code = int(meta.get("version_code", 3200))
+    base_version_name = str(meta.get("version_name", pkg["version"]))
+    # Every new commit raises both versionCode and the visible version (0.32.0 -> 0.32.0.<build>)
+    # so Android accepts the APK as an in-place update and the app shows a distinct version.
+    build_version = f"{base_version_name}.{commit_count}" if commit_count > 0 else base_version_name
     return {
         "name": pkg["name"],
-        "version": pkg["version"],
+        "version": build_version,
+        "base_version": base_version_name,
+        "build_number": commit_count,
         "package_name": meta.get("package_name", "com.lookingglass.alice"),
         "label": meta.get("label", "Looking Glass"),
         "version_code": base_version_code + commit_count,
-        "version_name": meta.get("version_name", pkg["version"]),
+        "version_name": build_version,
         "git_sha": git_sha,
         "min_sdk_version": int(meta.get("min_sdk_version", 26)),
         "target_sdk_version": int(meta.get("target_sdk_version", 34)),
@@ -249,6 +274,7 @@ def generate_layout(out_dir: pathlib.Path) -> dict[str, pathlib.Path]:
     )
     main_java = (ROOT / "tools" / "android" / "MainActivity.java").read_text(encoding="utf-8")
     main_java = main_java.replace("__BUILD_COMMIT_SHA__", str(meta.get("git_sha", "dev")))
+    main_java = main_java.replace("__BUILD_VERSION__", str(meta["version_name"]))
     quad_java = (ROOT / "tools" / "android" / "QuadNative.java").read_text(encoding="utf-8")
     activity_path.write_text(main_java, encoding="utf-8", newline="\n")
     quad_native_path.write_text(quad_java, encoding="utf-8", newline="\n")
@@ -322,13 +348,24 @@ def find_sdk_root() -> pathlib.Path | None:
     return None
 
 
+# Rust target triple -> NDK clang driver prefix (32-bit ARM uses "armv7a", not "armv7").
+NDK_CLANG_TRIPLES = {
+    "aarch64-linux-android": "aarch64-linux-android",
+    "armv7-linux-androideabi": "armv7a-linux-androideabi",
+    "x86_64-linux-android": "x86_64-linux-android",
+}
+# Rust target triple -> NDK sysroot library directory (holds libc++_shared.so).
+NDK_SYSROOT_TRIPLES = {
+    "aarch64-linux-android": "aarch64-linux-android",
+    "armv7-linux-androideabi": "arm-linux-androideabi",
+    "x86_64-linux-android": "x86_64-linux-android",
+}
+
+
 def find_libcplusplus_shared(ndk_root: pathlib.Path | None, target: str) -> pathlib.Path | None:
     if ndk_root is None:
         return None
-    ndk_triple = {
-        "aarch64-linux-android": "aarch64-linux-android",
-        "x86_64-linux-android": "x86_64-linux-android",
-    }.get(target)
+    ndk_triple = NDK_SYSROOT_TRIPLES.get(target)
     if not ndk_triple:
         return None
     pattern = str(ndk_root / "toolchains" / "llvm" / "prebuilt" / "*" / "sysroot" / "usr" / "lib" / ndk_triple / "libc++_shared.so")
@@ -369,10 +406,7 @@ def configure_ndk_env(ndk_root: pathlib.Path | None, target: str, min_sdk: int) 
     if not bin_dirs:
         return env
     bin_dir = pathlib.Path(bin_dirs[-1])
-    ndk_triple = {
-        "aarch64-linux-android": "aarch64-linux-android",
-        "x86_64-linux-android": "x86_64-linux-android",
-    }.get(target, target)
+    ndk_triple = NDK_CLANG_TRIPLES.get(target, target)
     cmd_ext = ".cmd" if os.name == "nt" else ""
     exe_ext = ".exe" if os.name == "nt" else ""
     clang = bin_dir / f"{ndk_triple}{min_sdk}-clang{cmd_ext}"
@@ -1074,6 +1108,7 @@ def build_native_libraries(
 ) -> tuple[dict[str, pathlib.Path], dict[str, list[pathlib.Path]]]:
     abi_map = {
         "aarch64-linux-android": "arm64-v8a",
+        "armv7-linux-androideabi": "armeabi-v7a",
         "x86_64-linux-android": "x86_64",
     }
     meta = load_android_metadata()
@@ -1339,7 +1374,11 @@ def main() -> int:
         "--target",
         action="append",
         default=[],
-        help="Rust Android target triple (default: aarch64-linux-android).",
+        help=(
+            "Rust Android target triple; repeat for several ABIs, e.g. aarch64-linux-android "
+            "(arm64-v8a) and armv7-linux-androideabi (32-bit armeabi-v7a). "
+            "Default: aarch64-linux-android."
+        ),
     )
     parser.add_argument(
         "--debug",

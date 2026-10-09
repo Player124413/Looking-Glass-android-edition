@@ -299,13 +299,13 @@ public class MainActivity extends Activity {
     private static final String TELEGRAM_URL = "https://t.me/player1444ports";
     private static final String ORIGINAL_REPO_URL = "https://github.com/skulitom/LookingGlass";
     private static final String PORT_REPO_RELEASES_API =
-            "https://api.github.com/repos/Player124413/LookingGlass/releases/latest";
+            "https://api.github.com/repos/Player124413/Looking-Glass-android-edition/releases/latest";
     private static final String PORT_REPO_COMMITS_API =
-            "https://api.github.com/repos/Player124413/LookingGlass/commits?per_page=1";
+            "https://api.github.com/repos/Player124413/Looking-Glass-android-edition/commits?per_page=1";
     private static final String PORT_REPO_WEB_URL =
-            "https://github.com/Player124413/LookingGlass/actions";
+            "https://github.com/Player124413/Looking-Glass-android-edition/actions";
     private static final String BUILD_COMMIT_SHA = "__BUILD_COMMIT_SHA__";
-    private static final String BUILD_VERSION = "0.32.0";
+    private static final String BUILD_VERSION = "__BUILD_VERSION__";
     private static boolean startupDialogShown = false;
 
     private QuadSurface view;
@@ -1246,7 +1246,8 @@ public class MainActivity extends Activity {
                     && !installedSha.toLowerCase(Locale.ROOT).startsWith(
                             latestSha.toLowerCase(Locale.ROOT))) {
                 hasNewer = true;
-            } else if (latestTag != null
+            } else if (latestSha == null
+                    && latestTag != null
                     && !latestTag.equals("v" + BUILD_VERSION)
                     && !latestTag.equals(BUILD_VERSION)) {
                 hasNewer = true;

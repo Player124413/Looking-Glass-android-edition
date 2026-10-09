@@ -8,7 +8,7 @@ Looking Glass does **not** include any proprietary *American McGee's Alice* game
 
 ## 1. Installing & Supplying Game Data (`base/*.pk3`)
 
-1. Install the Looking Glass Android APK (`com.lookingglass.alice`) on a 64-bit Android 8.0+ (API 26+) device with OpenGL ES 2.0+ support.
+1. Install the Looking Glass Android APK (`com.lookingglass.alice`) on an Android 8.0+ (API 26+) device with OpenGL ES 2.0+ support. One APK covers 64-bit ARM (`arm64-v8a`) and 32-bit ARM (`armeabi-v7a`) phones and tablets; Android picks the right native library automatically.
 2. Launch **Looking Glass**. The built-in **Android Launcher** opens with a short, uncluttered screen:
    - **Top bar**: **Port by Player1444 (TG)** (opens the Telegram channel), **Check Updates** and **Credits**.
    - **FPS Limit**: `30 FPS`, `60 FPS` or `Unlimited`.
@@ -69,19 +69,22 @@ Open **Settings -> Video -> Performance Profile** to choose how Looking Glass ba
 ## 4. Building for Android from Source
 
 ### Prerequisites
-- Rust 1.86+ with the `aarch64-linux-android` target:
+- Rust 1.86+ with the `aarch64-linux-android` target (and `armv7-linux-androideabi` for 32-bit devices):
   ```bash
-  rustup target add aarch64-linux-android
+  rustup target add aarch64-linux-android armv7-linux-androideabi
   ```
 - Android NDK (r25b or newer) and `cargo-ndk`:
   ```bash
   cargo install cargo-ndk
   ```
 
+### Versioning
+Every build gets a new version automatically: `versionCode` is `version_code` from `Cargo.toml` plus the number of commits, and the visible version is `<version_name>.<commit count>` (for example `0.32.0.14`), also shown in the in-app Credits window together with the commit hash. Because of that, Android installs each new APK as an in-place update over the previous one. CI checks out the full git history so the commit count keeps growing.
+
 ### Building the Signed APK & Native Bundle
-Run the packaging helper:
+Run the packaging helper (repeat `--target` to ship both ABIs in a single APK; this needs `rustup target add armv7-linux-androideabi` for the 32-bit build):
 ```bash
-python3 tools/package_android.py --target aarch64-linux-android
+python3 tools/package_android.py --target aarch64-linux-android --target armv7-linux-androideabi
 ```
 This audits the source tree, generates `AndroidManifest.xml`, `com.lookingglass.alice.MainActivity`, `quad_native.QuadNative`, and `INSTALL-ANDROID.txt`, compiles `liblooking_glass.so` (`--crate-type=cdylib`) with an 8 MiB native main-thread stack (`-Wl,-z,stack-size=8388608`) and exported `miniquad` JNI symbols, bundles `libc++_shared.so` from the NDK sysroot, and:
 - When the Android SDK (`ANDROID_HOME` / `ANDROID_SDK_ROOT` with `build-tools` and `platforms`) and JDK (`javac`, `keytool`) are present, automatically compiles, aligns, and signs `target/android-dist/LookingGlass-v<version>-android.apk`.
