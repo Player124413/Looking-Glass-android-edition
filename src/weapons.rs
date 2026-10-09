@@ -132,6 +132,20 @@ struct Emission {
     pose: Vec<Transform>,
     anchors: Option<[Transform; 3]>,
 }
+/// Audio loop-cue id for a weapon source (`namespace` 1..=4).
+///
+/// 64-bit targets keep the original layout: each source owns a 2^32-wide range above the
+/// level ids. On 32-bit targets (`usize` is 32 bits wide) the same four ranges are packed
+/// at `namespace * 0x1000_0000`, still above every level-defined cue id (all below
+/// `0x1000_0000`), so loop cues of different sources and levels never collide.
+fn weapon_loop_id(namespace: usize, id: u32) -> usize {
+    if cfg!(target_pointer_width = "64") {
+        (((namespace as u64) << 32) | id as u64) as usize
+    } else {
+        namespace * 0x1000_0000 + (id as usize & 0x0FFF_FFFF)
+    }
+}
+
 impl Events {
     pub fn attach_contacts(&mut self, mut anchors: impl FnMut(&[Transform]) -> [Transform; 3]) {
         for e in &mut self.emissions {
@@ -1241,7 +1255,7 @@ impl Visuals {
             .last()
             .filter(|p| p.1 + 1e-6 >= self.ice.clock)
             .map(|p| crate::audio::LoopCue {
-                id: 0x2_0000_0000usize,
+                id: weapon_loop_id(2, 0),
                 origin: self.eye,
                 path: if p.2 { ice::WALL_FIRE } else { ice::FIRE },
                 clock: Some((self.ice.clock - p.0) as f32),
@@ -1273,14 +1287,14 @@ impl Visuals {
                     .filter(|b| b.alternate && b.age >= self.bomb_data.crank + self.bomb_data.open)
                     .map(|b| crate::audio::LoopCue {
                         clock: Some((b.age - self.bomb_data.crank - self.bomb_data.open) as f32),
-                        id: 0x1_0000_0000usize + b.id as usize,
+                        id: weapon_loop_id(1, b.id),
                         origin: b.position,
                         path: bomb::BREATH,
                     }),
             )
             .chain(ice_loop)
             .chain(self.heavy.charge.iter().map(|c| crate::audio::LoopCue {
-                id: 0x3_0000_0000usize + c.id as usize,
+                id: weapon_loop_id(3, c.id),
                 origin: c.pose.translation,
                 path: if !c.alternate && c.age >= 2.15 {
                     heavy::BEAM
@@ -1302,7 +1316,7 @@ impl Visuals {
                     .iter()
                     .filter(|p| p.kind == heavy::Kind::Cannon)
                     .map(|p| crate::audio::LoopCue {
-                        id: 0x4_0000_0000usize + p.id as usize,
+                        id: weapon_loop_id(4, p.id),
                         origin: p.position,
                         path: heavy::BUSS_LOOP,
                         clock: Some(p.age as f32),
