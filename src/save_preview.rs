@@ -228,7 +228,7 @@ impl Frame {
         // pass), but every save — including the autosave on quit and the backup
         // taken when starting a new game — must show the world where the player
         // stopped. So on Android keep a warm screenshot: refresh at most every
-        // 2 seconds, or immediately when a save requests it. Desktop captures
+        // 5 seconds, or immediately when a save requests it. Desktop captures
         // every N frames based on the active performance preset.
         let is_android = crate::android::is_android();
         let interval = crate::android::active_preset().save_preview_interval();
@@ -238,7 +238,7 @@ impl Frame {
             if !self.pending
                 && self
                     .last_capture
-                    .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(2))
+                    .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(5))
             {
                 return;
             }

@@ -76,15 +76,17 @@ class QuadSurface extends SurfaceView
     // Render-buffer size. The launcher is drawn at (almost) native resolution so its text is
     // sharp; once the game starts MainActivity.enterGameRenderMode() switches to the small
     // 540p buffer the game has always used (the system scales it up).
-    private static final int LAUNCHER_SHORT_SIDE = 1080;
-    private static final int GAME_SHORT_SIDE = 540;
+    static final int LAUNCHER_SHORT_SIDE = 1080;
+    static final int GAME_SHORT_SIDE = 540;
+    /** Short side (px) of the game render buffer; set from Rust via render_short_side.txt. */
+    static volatile int gameShortSide = GAME_SHORT_SIDE;
     private volatile boolean gameRenderMode = false;
     private SurfaceHolder currentHolder;
     private int rawWidth = 0;
     private int rawHeight = 0;
 
     private static int[] computeRenderSize(int rawWidth, int rawHeight, boolean gameMode) {
-        final int targetShortSide = gameMode ? GAME_SHORT_SIDE : LAUNCHER_SHORT_SIDE;
+        final int targetShortSide = gameMode ? gameShortSide : LAUNCHER_SHORT_SIDE;
         if (rawWidth <= 0 || rawHeight <= 0) {
             return new int[] {1194, 540};
         }
@@ -861,8 +863,9 @@ public class MainActivity extends Activity {
                 });
     }
 
-    /** Called from Rust when the game starts: drop the render buffer to the game's 540p size. */
+    /** Called from Rust when the game starts: drop the render buffer to the game size. */
     public void enterGameRenderMode() {
+        QuadSurface.gameShortSide = readGameShortSide();
         runOnUiThread(
                 new Runnable() {
                     @Override
@@ -872,6 +875,40 @@ public class MainActivity extends Activity {
                         }
                     }
                 });
+    }
+
+    /**
+     * Game-buffer short side written by Rust (preset-aware: 540 / 480 / 400).
+     * Falls back to the classic 540p when the file is missing or invalid.
+     */
+    private int readGameShortSide() {
+        int shortSide = QuadSurface.GAME_SHORT_SIDE;
+        try {
+            File root = storageRoot != null ? storageRoot : getExternalFilesDir(null);
+            if (root == null) {
+                root = getFilesDir();
+            }
+            if (root != null) {
+                File cfg = new File(root, "render_short_side.txt");
+                if (cfg.isFile()) {
+                    try (BufferedReader reader =
+                            new BufferedReader(
+                                    new InputStreamReader(
+                                            new FileInputStream(cfg), StandardCharsets.UTF_8))) {
+                        String line = reader.readLine();
+                        if (line != null) {
+                            int value = Integer.parseInt(line.trim());
+                            if (value >= 280 && value <= 1080) {
+                                shortSide = value;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // Missing/invalid file: keep the classic 540p game buffer.
+        }
+        return shortSide;
     }
 
     public void openTelegramLink() {

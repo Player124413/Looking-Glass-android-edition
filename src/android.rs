@@ -905,9 +905,22 @@ pub fn show_credits_dialog() -> bool {
     call_activity_void("showCreditsDialog")
 }
 
-/// Ask the activity to drop the render buffer from the sharp launcher size to the game's
-/// 540p size (`MainActivity.enterGameRenderMode()`). Returns `true` when the call was made.
+/// Ask the activity to drop the render buffer from the sharp launcher size to the
+/// game buffer (`MainActivity.enterGameRenderMode()`). The short side of the game
+/// buffer is preset-aware and handed to the activity through
+/// `render_short_side.txt` so weaker GPUs can render fewer pixels.
+/// Returns `true` when the call was made.
 pub fn enter_game_render_mode() -> bool {
+    let short_side = match active_preset().effective() {
+        PerformancePreset::Balanced => 480,
+        PerformancePreset::Performance => 400,
+        PerformancePreset::Quality | PerformancePreset::Auto => 540,
+    };
+    if is_android() {
+        let root = storage_root();
+        let _ = std::fs::create_dir_all(&root);
+        let _ = std::fs::write(root.join("render_short_side.txt"), short_side.to_string());
+    }
     call_activity_void("enterGameRenderMode")
 }
 
