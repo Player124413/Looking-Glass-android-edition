@@ -717,6 +717,10 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
     let mut played = resume.is_none();
     let mut post_game = false;
     let mut save_frame = crate::save_preview::Frame::default();
+    // Filled by Action::Save in the modal menu loop so the save runs next
+    // frame after the menu closes and the 3D world re-renders for a fresh
+    // thumbnail (instead of saving a menu-stilled or black frame).
+    let mut menu_save_pending: Option<Slot> = None;
     macro_rules! level_snapshot {
         () => {
             Level {
@@ -997,8 +1001,11 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                         // Defer to the next frame so the 3D world renders once
                         // more before we grab_screen() — otherwise the thumbnail
                         // shows the menu (or is black on Android where per-frame
-                        // capture is disabled).
-                        pending_save_slot = Some(slot);
+                        // capture is disabled). The modal menu frame loop cannot
+                        // set `pending_save_slot` directly because that variable
+                        // lives in the per-frame scope below, so we carry the
+                        // request out through `menu_save_pending`.
+                        menu_save_pending = Some(slot);
                         escape_menu.close();
                         paused = false;
                         format!("Saving to {}...", slot.title())
@@ -1120,9 +1127,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         // (after the world has been re-rendered so the thumbnail is fresh). This covers:
         //   - F5 quick save
         //   - autosave transitions (level load / checkpoint)
-        //   - the pause menu's "Save to slot N" (which resolves mid-modal-loop,
-        //     so is deferred one frame to avoid a menu-stained thumbnail)
-        let mut pending_save_slot: Option<Slot> = None;
+        //   - the pause menu's "Save to slot N" (carried over from the modal loop
+        //     via `menu_save_pending` so we capture a clean in-game frame)
+        let mut pending_save_slot: Option<Slot> = menu_save_pending.take();
         if focused && !console_input && input.key(&preferences, KeyCode::F5, true) {
             pending_save_slot = Some(Slot::Quick);
         }
