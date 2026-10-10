@@ -128,13 +128,7 @@ fn collect_pk3_paths(dir: &Path) -> Result<Vec<PathBuf>> {
 
 /// Extract the contents of a ZIP archive (or copy a .pk3) into `dest`.
 /// Writes any .pk3 files encountered (and recursively any nested .zip files
-/// inside) into `dest`. Used by the Android launcher's mod importer and by
-/// the "Select PK3 / ZIP" flow.
-///
-/// 7z is NOT handled here because sevenz-rust would require a network-fetched
-/// Cargo.lock update we can't run in the sandbox. The Java caller shows a
-/// clear error asking the user to extract the .7z on-device first
-/// (e.g. with ZArchiver) and then select the resulting .pk3 files.
+/// inside) into `dest`. Used by the "Select PK3 / ZIP" flow on the launcher.
 pub fn import_archive(src: &Path, dest: &Path) -> Result<usize> {
     fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
     let lower = src
@@ -151,9 +145,8 @@ pub fn import_archive(src: &Path, dest: &Path) -> Result<usize> {
         }
         "zip" => import_zip(src, dest),
         "7z" | "7zip" => bail!(
-            "7z archives are not supported directly. Extract the archive on your device \
-             (e.g. with ZArchiver) or PC to get the .pk3 files inside, then select those \
-             .pk3 files with the Install Mod button."
+            "7z archives are not supported. Extract the archive on your device (e.g. with "
+            "ZArchiver) or PC first, then select the .pk3 files inside."
         ),
         other => bail!("Unsupported archive type: {other}"),
     }

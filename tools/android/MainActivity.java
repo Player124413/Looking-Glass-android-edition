@@ -329,7 +329,6 @@ class ResizingLayout extends LinearLayout implements View.OnApplyWindowInsetsLis
 public class MainActivity extends Activity {
     private static final int REQ_PICK_FOLDER = 1001;
     private static final int REQ_PICK_FILES = 1002;
-    private static final int REQ_PICK_MODS = 1003;
 
     private static volatile MainActivity currentInstance;
     private static boolean libraryLoaded = false;
@@ -368,13 +367,6 @@ public class MainActivity extends Activity {
 
     public static native void nativeOnGamepad(
             int connected, int buttons, int lt, int rt, int lx, int ly, int rx, int ry);
-
-    /**
-     * JNI bridge: extract any .pk3 files (including those inside nested
-     * .zip archives) from the archive at {@code archivePath} into {@code destDir}.
-     * Returns the number of pk3 files written, or -1 on error.
-     */
-    public static native int nativeImportModArchive(String archivePath, String destDir);
 
     static {
         try {
@@ -1730,13 +1722,6 @@ public class MainActivity extends Activity {
         return base;
     }
 
-    private File getStorageRoot() {
-        if (storageRoot == null) {
-            provisionStorage();
-        }
-        return storageRoot != null ? storageRoot : getFilesDir();
-    }
-
     private void writeImportStatus(String state, String message) {
         try {
             if (storageRoot == null) {
@@ -1822,42 +1807,10 @@ public class MainActivity extends Activity {
                 });
     }
 
-    /**
-     * Invoked via JNI when the user taps Install Mod. Opens the Android file
-     * picker for one or more .pk3 / .zip / .7z files and copies/extracts them
-     * into the mods/ folder (created next to base/).
-     */
-    public void openModPicker() {
-        if (importRunning) {
-            return;
-        }
-        runOnUiThread(
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            writeImportStatus(
-                                    "PICKING",
-                                    "Select mod file(s) (.pk3 / .zip / .7z, e.g. Dreamland_v1.3.4.7z)...");
-                            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                            intent.addCategory(Intent.CATEGORY_OPENABLE);
-                            intent.setType("*/*");
-                            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                            startActivityForResult(intent, REQ_PICK_MODS);
-                        } catch (Exception e) {
-                            writeImportStatus(
-                                    "ERROR",
-                                    "Could not launch mod picker: " + e.getMessage());
-                        }
-                    }
-                });
-    }
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_PICK_FOLDER && requestCode != REQ_PICK_FILES && requestCode != REQ_PICK_MODS) {
+        if (requestCode != REQ_PICK_FOLDER && requestCode != REQ_PICK_FILES) {
             return;
         }
         if (resultCode != RESULT_OK || data == null) {
@@ -1882,8 +1835,6 @@ public class MainActivity extends Activity {
                                         } else {
                                             writeImportStatus("ERROR", "No folder URI returned.");
                                         }
-                                    } else if (req == REQ_PICK_MODS) {
-                                        importModsFromIntent(resultIntent);
                                     } else {
                                         importFromFileIntent(resultIntent);
                                     }
@@ -1897,71 +1848,6 @@ public class MainActivity extends Activity {
                         },
                         "LookingGlass-Importer")
                 .start();
-    }
-
-    /**
-     * Import user-picked mod files into <storage>/mods/.
-     *  - .pk3 -> copied verbatim
-     *  - .zip -> inner .pk3 files extracted directly into mods/
-     *  - .7z -> copied to a temp file then extracted by Rust's sevenz_rust via
-     *           nativeImportModArchive, since the Android toolchain here has no
-     *           built-in 7Z support.
-     */
-    private void importModsFromIntent(Intent data) throws Exception {
-        ContentResolver resolver = getContentResolver();
-        List<Uri> uris = new ArrayList<>();
-        ClipData clip = data.getClipData();
-        if (clip != null) {
-            for (int i = 0; i < clip.getItemCount(); i++) {
-                Uri u = clip.getItemAt(i).getUri();
-                if (u != null) uris.add(u);
-            }
-        } else if (data.getData() != null) {
-            uris.add(data.getData());
-        }
-        if (uris.isEmpty()) {
-            writeImportStatus("ERROR", "No mod files selected.");
-            return;
-        }
-        File modsDir = new File(getStorageRoot(), "mods");
-        if (!modsDir.exists() && !modsDir.mkdirs()) {
-            writeImportStatus("ERROR", "Cannot create mods folder: " + modsDir.getAbsolutePath());
-            return;
-        }
-        File tmpDir = new File(modsDir, ".tmp");
-        tmpDir.mkdirs();
-        int copied = 0;
-        int total = uris.size();
-        for (int i = 0; i < total; i++) {
-            Uri uri = uris.get(i);
-            String name = queryDisplayName(resolver, uri);
-            if (name == null) name = "mod.pk3";
-            String lower = name.toLowerCase(Locale.ROOT);
-            String safeName = sanitizeFileName(name);
-            writeImportStatus("BUSY", "Importing mod " + safeName + " (" + (i + 1) + "/" + total + ")...");
-            if (lower.endsWith(".pk3")) {
-                copyUriToFile(resolver, uri, new File(modsDir, safeName), safeName, i + 1, total);
-                copied++;
-            } else if (lower.endsWith(".zip")) {
-                // ZIPs that contain .pk3s (Alice mod zips) — extract straight into mods/.
-                copied += extractPk3FromZipUri(resolver, uri, name, modsDir);
-            } else if (lower.endsWith(".7z") || lower.endsWith(".7zip")) {
-                writeImportStatus("ERROR",
-                        "7z archives must be extracted first. Use ZArchiver (or your PC) to " +
-                        "unpack " + safeName + ", then select the .pk3 files inside.");
-            } else {
-                writeImportStatus("BUSY", "Skipping " + safeName + " (not .pk3 / .zip).");
-            }
-        }
-        // Clean tmp dir.
-        File[] leftover = tmpDir.listFiles();
-        if (leftover != null) for (File f : leftover) f.delete();
-        tmpDir.delete();
-        if (copied > 0) {
-            writeImportStatus("DONE", "Installed " + copied + " mod pack(s) into " + modsDir.getAbsolutePath() + ". Tap START GAME to play.");
-        } else {
-            writeImportStatus("ERROR", "No .pk3 mod packs were found in the selected archive(s). For Dreamland, pick Dreamland_v*.7z directly.");
-        }
     }
 
     private void importFromTreeUri(Uri treeUri) throws Exception {
