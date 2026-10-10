@@ -721,6 +721,10 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
     // frame after the menu closes and the 3D world re-renders for a fresh
     // thumbnail (instead of saving a menu-stilled or black frame).
     let mut menu_save_pending: Option<Slot> = None;
+    // Overlay grace: for a few frames after opening the chapters (MAP)
+    // overlay or inventory, ignore pointer clicks and Escape so the finger
+    // that opened the overlay cannot immediately select something / close it.
+    let mut overlay_grace: u32 = 0;
     macro_rules! level_snapshot {
         () => {
             Level {
@@ -1390,7 +1394,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         let edge = |key: KeyCode| -> bool { focused && !console_input && input.key(&preferences, key, true) };
         let mut opening_map = false;
         let mut opening_inv = false;
-        if input.ui(KeyCode::Escape) && !console_input {
+        // Ignore Escape-close of MAP/inventory during the opening grace period.
+        let in_overlay_grace = overlay_grace > 0;
+        if input.ui(KeyCode::Escape) && !console_input && !in_overlay_grace {
             if inventory_menu {
                 inventory_menu = false;
             } else if menu {
@@ -1404,6 +1410,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             if menu {
                 opening_map = true;
                 clock.pause();
+                overlay_grace = 10;
             }
             chapters.open(
                 crate::campaign::choice_position(&level_choices, current, entry_spawn.as_deref()),
@@ -1417,6 +1424,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             clock.pause();
             if inventory_menu {
                 opening_inv = true;
+                overlay_grace = 10;
             }
         }
         // Drain the finger that just opened MAP/inventory so it can't click
@@ -1424,6 +1432,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         if opening_map || opening_inv {
             input.suppress();
             crate::touch::drain_active_touches();
+        }
+        if overlay_grace > 0 {
+            overlay_grace -= 1;
         }
 
         // Edge/held helpers for the rest of the frame. These closures borrow
@@ -1512,6 +1523,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             &mut pitch,
         );
         hud.update(dt);
+        let inv_grace = in_overlay_grace && inventory_menu;
         if focused && !console_input && stats.alive() && !menu && (inventory_menu || !paused) {
             let keys = [
                 KeyCode::Key1,
@@ -1525,13 +1537,17 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 KeyCode::Key9,
                 KeyCode::Key0,
             ];
-            let selected = keys.iter().position(|&k| pressed(k)).or_else(|| {
-                if inventory_menu {
-                    hud.inventory_hit()
-                } else {
-                    None
-                }
-            });
+            let selected = if inv_grace {
+                None
+            } else {
+                keys.iter().position(|&k| pressed(k)).or_else(|| {
+                    if inventory_menu {
+                        hud.inventory_hit()
+                    } else {
+                        None
+                    }
+                })
+            };
             if let Some(i) = selected {
                 if stats.select(i) {
                     hud.selected(&stats);
@@ -1541,13 +1557,13 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 } else {
                     hud.announce(format!("Not yet available: {}", inventory::WEAPONS[i].1));
                 }
-            } else if inventory_menu && hud.inventory_close_hit() {
+            } else if inventory_menu && !inv_grace && hud.inventory_close_hit() {
                 inventory_menu = false;
             }
             let previous = input.action(&preferences, "Wheel Up", true)
-                || (inventory_menu && (input.ui(KeyCode::Up) || input.ui(KeyCode::Left)));
+                || (inventory_menu && !inv_grace && (input.ui(KeyCode::Up) || input.ui(KeyCode::Left)));
             let next = input.action(&preferences, "Wheel Down", true)
-                || (inventory_menu && (input.ui(KeyCode::Down) || input.ui(KeyCode::Right)));
+                || (inventory_menu && !inv_grace && (input.ui(KeyCode::Down) || input.ui(KeyCode::Right)));
             if previous || next {
                 stats.cycle(if next { 1 } else { -1 });
                 hud.selected(&stats);
@@ -1794,7 +1810,15 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             let mut chapter_action = None;
             if menu && !console_map {
                 if focused && !console_input {
-                    chapter_action = chapters.update(&input, level_choices.len(), &mut options.difficulty);
+                    if in_overlay_grace {
+                        // During grace, ignore pointer/tab-originated clicks in
+                        // the chapter chooser so the opening finger doesn't
+                        // immediately select a chapter or hit Back. Keyboard
+                        // navigation is OK, but we already suppress input above.
+                        chapters.update_ignore_pointer(&input, level_choices.len(), &mut options.difficulty);
+                    } else {
+                        chapter_action = chapters.update(&input, level_choices.len(), &mut options.difficulty);
+                    }
                 }
                 let choice = &level_choices[chapters.selected];
                 selected = choice.map;
@@ -1802,7 +1826,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             }
             if chapter_action == Some(crate::chapters::Hit::Back) {
                 menu = false;
-            } else if input.ui(KeyCode::Enter)
+            } else if (input.ui(KeyCode::Enter) && !in_overlay_grace)
                 || chapter_action == Some(crate::chapters::Hit::Begin)
                 || console_map
             {

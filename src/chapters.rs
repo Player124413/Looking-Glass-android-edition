@@ -72,6 +72,31 @@ impl Chapters {
         hit
     }
 
+    /// Like `update` but ignores pointer clicks and keyboard "activate" edges.
+    /// Used for the first few frames after opening the chooser so the finger
+    /// that tapped MAP can't immediately select a chapter or hit Back.
+    pub fn update_ignore_pointer(
+        &mut self,
+        input: &crate::input::Input,
+        count: usize,
+        difficulty: &mut Difficulty,
+    ) {
+        if count == 0 || !crate::look::window_focused() { return; }
+        if input.ui(KeyCode::Down) { self.select((self.selected + 1) % count, count); }
+        if input.ui(KeyCode::Up) { self.select((self.selected + count - 1) % count, count); }
+        if input.ui(KeyCode::Home) { self.select(0, count); }
+        if input.ui(KeyCode::End) { self.select(count - 1, count); }
+        let wheel_unit = if cfg!(target_os = "windows") { 120. } else { 1. };
+        self.scroll(mouse_wheel().1 / wheel_unit, count);
+        // Pointer is completely ignored here; no hit, no drag.
+        self.drag_last_y = None;
+        self.dragged = false;
+        if is_key_pressed(KeyCode::D) || input.pad_pressed("Y") {
+            // Allow difficulty cycling but don't treat it as a click.
+            *difficulty = Difficulty::ALL[(*difficulty as usize + 1) % 4];
+        }
+    }
+
     pub fn open(&mut self, selected: usize, count: usize) {
         self.selected = selected.min(count.saturating_sub(1));
         self.top = self
