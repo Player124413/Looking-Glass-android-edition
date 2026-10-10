@@ -1384,10 +1384,12 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             next_frame().await;
             continue;
         }
-        // Sample edge/held keys via macros so we don't keep a closure borrow
-        // of `input` alive across mutable calls (input.suppress()).
-        macro_rules! pressed { ($k:expr) => { focused && !console_input && input.key(&preferences, $k, true) }; }
-        macro_rules! held    { ($k:expr) => { focused && !console_input && input.key(&preferences, $k, false) }; }
+        // Overlay toggles (MAP / inventory / Escape-back) are handled BEFORE
+        // defining the `pressed`/`held` closures so we can mutably call
+        // input.suppress()+drain here without fighting the borrow checker.
+        let edge = |key: KeyCode| -> bool { focused && !console_input && input.key(&preferences, key, true) };
+        let mut opening_map = false;
+        let mut opening_inv = false;
         if input.ui(KeyCode::Escape) && !console_input {
             if inventory_menu {
                 inventory_menu = false;
@@ -1395,15 +1397,12 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 menu = false;
             }
         }
-        let tab_pressed       = pressed!(KeyCode::Tab);
-        let inv_pressed       = pressed!(KeyCode::I) && focused;
-        if tab_pressed {
+        if edge(KeyCode::Tab) {
             menu = !menu;
             inventory_menu = false;
             help_until = 0.0;
             if menu {
-                // Drain the opening MAP finger so a still-held touch cannot
-                // immediately select a chapter entry or close the overlay.
+                opening_map = true;
                 clock.pause();
             }
             chapters.open(
@@ -1411,14 +1410,29 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 level_choices.len(),
             );
         }
-        if inv_pressed {
+        if edge(KeyCode::I) && focused {
             inventory_menu = !inventory_menu;
             menu = false;
             help_until = 0.;
             clock.pause();
+            if inventory_menu {
+                opening_inv = true;
+            }
         }
+        // Drain the finger that just opened MAP/inventory so it can't click
+        // through onto the new overlay on its first frame.
+        if opening_map || opening_inv {
+            input.suppress();
+            crate::touch::drain_active_touches();
+        }
+
+        // Edge/held helpers for the rest of the frame. These closures borrow
+        // `input` immutably but are only used after the suppress() block above.
+        let pressed = |key: KeyCode| -> bool { focused && !console_input && input.key(&preferences, key, true) };
+        let held    = |key: KeyCode| -> bool { focused && !console_input && input.key(&preferences, key, false) };
+
         let mut audio_changed = false;
-        if pressed!(KeyCode::M) {
+        if pressed(KeyCode::M) {
             audio.settings.muted = !audio.settings.muted;
             audio_changed = true;
         }
@@ -1428,22 +1442,12 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             }
         }
         let mut help_toggle = false;
-        if (pressed!(KeyCode::H) || pressed!(KeyCode::F1))
+        if (pressed(KeyCode::H) || pressed(KeyCode::F1))
             && !menu
             && !inventory_menu
             && !console_input
         {
             help_toggle = true;
-        }
-        // End of all uses of the `pressed` closure: we can now mutably borrow
-        // `input` for suppress/drain.
-        if tab_pressed && menu {
-            input.suppress();
-            crate::touch::drain_active_touches();
-        }
-        if inv_pressed && inventory_menu {
-            input.suppress();
-            crate::touch::drain_active_touches();
         }
         if help_toggle {
             help_until = if get_time() < help_until {
@@ -1452,15 +1456,15 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 get_time() + 8.0
             };
         }
-        if pressed!(KeyCode::F2) {
+        if pressed(KeyCode::F2) {
             fullbright = !fullbright;
         }
-        if pressed!(KeyCode::V) && !menu && !inventory_menu && !console_input {
+        if pressed(KeyCode::V) && !menu && !inventory_menu && !console_input {
             third_person = !third_person;
             follow_camera.reset();
             camera_handoff.reset();
         }
-        if pressed!(KeyCode::P) && focused {
+        if pressed(KeyCode::P) && focused {
             paused = !paused;
             clock.pause();
         }
@@ -1583,10 +1587,10 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             && !menu
             && !inventory_menu
             && !console_input
-            && ((!stats.alive() && (pressed!(KeyCode::Enter) || input.pad_pressed("A")))
-                || (!paused && pressed!(KeyCode::R)));
+            && ((!stats.alive() && (pressed(KeyCode::Enter) || input.pad_pressed("A")))
+                || (!paused && pressed(KeyCode::R)));
         let restart =
-            focused && !menu && !inventory_menu && !console_input && pressed!(KeyCode::Home);
+            focused && !menu && !inventory_menu && !console_input && pressed(KeyCode::Home);
         if let Some(s) = &mut interactions.school {
             s.sync_inventory(&mut stats);
         }
@@ -1631,7 +1635,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 && focused
                 && !flying
                 && stats.alive(),
-            held!(KeyCode::Enter)
+            held(KeyCode::Enter)
                 || input.pad_held("A")
                 || (skip_id.is_some() && input.touch.any_touch_down()),
             dt,
@@ -1759,7 +1763,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 hud.announce("Entrance is obstructed / choose another level with Tab");
             }
         }
-        if (console_fly || (pressed!(KeyCode::F4) && !menu && !inventory_menu)) && stats.alive() {
+        if (console_fly || (pressed(KeyCode::F4) && !menu && !inventory_menu)) && stats.alive() {
             if flying {
                 let feet = pos - Vec3::Z * EYE_HEIGHT;
                 if scene.world.body_clear(feet) {
@@ -1884,16 +1888,16 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 yaw -= touch_look.x;
                 pitch += touch_look.y;
             }
-            if !scripted_view && held!(KeyCode::Left) {
+            if !scripted_view && held(KeyCode::Left) {
                 yaw += dt * 1.3;
             }
-            if !scripted_view && held!(KeyCode::Right) {
+            if !scripted_view && held(KeyCode::Right) {
                 yaw -= dt * 1.3;
             }
-            if !scripted_view && held!(KeyCode::Up) {
+            if !scripted_view && held(KeyCode::Up) {
                 pitch += dt;
             }
-            if !scripted_view && held!(KeyCode::Down) {
+            if !scripted_view && held(KeyCode::Down) {
                 pitch -= dt;
             }
             pitch = pitch.clamp(-1.5, 1.5);
@@ -1904,28 +1908,28 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             );
             let right = vec3(yaw.sin(), -yaw.cos(), 0.);
             let mut movement = forward * input.movement().y + right * input.movement().x;
-            if held!(KeyCode::W) {
+            if held(KeyCode::W) {
                 movement += forward;
             }
-            if held!(KeyCode::S) {
+            if held(KeyCode::S) {
                 movement -= forward;
             }
-            if held!(KeyCode::D) {
+            if held(KeyCode::D) {
                 movement += right;
             }
-            if held!(KeyCode::A) {
+            if held(KeyCode::A) {
                 movement -= right;
             }
             if flying {
                 player.release_rope();
             }
-            if flying && (held!(KeyCode::E) || (input.using_touch && held!(KeyCode::Space))) {
+            if flying && (held(KeyCode::E) || (input.using_touch && held(KeyCode::Space))) {
                 movement.z += 1.;
             }
-            if flying && (held!(KeyCode::Q) || (input.using_touch && held!(KeyCode::LeftControl))) {
+            if flying && (held(KeyCode::Q) || (input.using_touch && held(KeyCode::LeftControl))) {
                 movement.z -= 1.;
             }
-            let speed = if held!(KeyCode::LeftShift) { 800. } else { 220. };
+            let speed = if held(KeyCode::LeftShift) { 800. } else { 220. };
             if flying {
                 pos += movement.normalize_or_zero() * speed * dt;
                 clock.pause();
@@ -1954,7 +1958,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                         .prompt(&scene.world, player.eye(), aim)
                         .is_some(),
                 );
-                let use_pressed = pressed!(KeyCode::E)
+                let use_pressed = pressed(KeyCode::E)
                     || (owner == UseOwner::Dialogue
                         && input.using_touch
                         && pointer_pressed
@@ -2020,16 +2024,16 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 let flat = vec2(yaw.cos(), yaw.sin());
                 let right = vec2(yaw.sin(), -yaw.cos());
                 let mut wish = flat * input.movement().y + right * input.movement().x;
-                if held!(KeyCode::W) {
+                if held(KeyCode::W) {
                     wish += flat;
                 }
-                if held!(KeyCode::S) {
+                if held(KeyCode::S) {
                     wish -= flat;
                 }
-                if held!(KeyCode::D) {
+                if held(KeyCode::D) {
                     wish += right;
                 }
-                if held!(KeyCode::A) {
+                if held(KeyCode::A) {
                     wish -= right;
                 }
                 let mut control = Controls {
@@ -2037,9 +2041,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                         && matches!(owner, UseOwner::SharedRope | UseOwner::Traversal),
                     wish: wish.clamp_length_max(1.),
                     swim: movement.clamp_length_max(1.),
-                    rise: f32::from(held!(KeyCode::Space)) - f32::from(held!(KeyCode::LeftControl)),
-                    jump: !overlay_before && pressed!(KeyCode::Space),
-                    run: preferences.run(held!(KeyCode::LeftShift)),
+                    rise: f32::from(held(KeyCode::Space)) - f32::from(held(KeyCode::LeftControl)),
+                    jump: !overlay_before && pressed(KeyCode::Space),
+                    run: preferences.run(held(KeyCode::LeftShift)),
                 };
                 interactions.filter_level_controls(&mut control);
                 let controlled = interactions
@@ -2072,7 +2076,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                     player.grounded
                         && before_grounded
                         && player.immersion.level == 0
-                        && !preferences.run(held!(KeyCode::LeftShift)),
+                        && !preferences.run(held(KeyCode::LeftShift)),
                     player.jumps > before_jumps,
                     player.landings > before_landings && before_fall < -90.,
                 );
@@ -2188,7 +2192,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             && !flying
             && stats.alive();
         hints.sync(&interactions);
-        if (summon_cat || (story_active && pressed!(KeyCode::C))) && !in_transport {
+        if (summon_cat || (story_active && pressed(KeyCode::C))) && !in_transport {
             let outcome = if !stats.alive() || flying {
                 Err("Return to walking and retry before summoning Cheshire.")
             } else {
@@ -2663,7 +2667,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 0.
             },
             &player,
-            preferences.run(held!(KeyCode::LeftShift)),
+            preferences.run(held(KeyCode::LeftShift)),
             character::WeaponInput {
                 dice: stats.copies(6),
                 first_person: !third_person && !flying,
