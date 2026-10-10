@@ -953,13 +953,6 @@ impl TouchState {
         let alpha = prefs.touch_opacity.clamp(0.2, 1.0);
         let s = layout.scale;
 
-        let base_fill = Color::new(0.11, 0.08, 0.13, 0.58 * alpha);
-        let active_fill = Color::new(0.58, 0.16, 0.15, 0.82 * alpha);
-        let highlight_fill = Color::new(0.36, 0.24, 0.12, 0.72 * alpha);
-        let border = Color::new(0.78, 0.64, 0.44, 0.78 * alpha);
-        let highlight_border = Color::new(0.96, 0.82, 0.46, 0.95 * alpha);
-        let text_color = Color::new(0.95, 0.90, 0.80, 0.92 * alpha);
-
         // Draw virtual movement stick when alive, visible, and inventory is closed.
         if layout.stick_visible
             && self.context.alive

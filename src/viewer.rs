@@ -1122,9 +1122,10 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         //   - autosave transitions (level load / checkpoint)
         //   - the pause menu's "Save to slot N" (which resolves mid-modal-loop,
         //     so is deferred one frame to avoid a menu-stained thumbnail)
-        let quicksave =
-            focused && !console_input && input.key(&preferences, KeyCode::F5, true);
-        let mut pending_save_slot: Option<Slot> = quicksave.then_some(Slot::Quick);
+        let mut pending_save_slot: Option<Slot> = None;
+        if focused && !console_input && input.key(&preferences, KeyCode::F5, true) {
+            pending_save_slot = Some(Slot::Quick);
+        }
         let mut load_requested =
             (focused && !console_input && input.key(&preferences, KeyCode::F9, true))
                 .then_some(Slot::Quick);
