@@ -59,6 +59,7 @@ pub struct Frame {
     texture: Option<Texture2D>,
     tick: u32,
     pending: bool,
+    last_capture: Option<std::time::Instant>,
 }
 
 /// Isolated native persistence/menu regression; never opens player save slots.
@@ -210,6 +211,7 @@ impl Frame {
     pub fn clear(&mut self) {
         self.texture = None;
         self.pending = false;
+        self.last_capture = None;
     }
     /// Schedule a screen capture to happen on the next `update()` call. Used on
     /// Android so we only pay the framebuffer readback cost when a save is about
@@ -219,23 +221,27 @@ impl Frame {
     }
     /// Call after the world and first-person toy, before any menus/HUD/cursor.
     pub fn update(&mut self) {
-        // On Android / tile-based mobile GPUs we avoid the per-frame readback
-        // (glReadPixels on a tiled GPU forces a mid-frame flush that destroys
-        // the binning pass) and only capture when a save explicitly requests a
-        // preview via `request()`. Desktop captures every N frames based on the
-        // active performance preset.
+        // Per-frame readback is too expensive on tile-based mobile GPUs
+        // (glReadPixels forces a mid-frame flush that destroys the binning
+        // pass), but every save — including the autosave on quit and the backup
+        // taken when starting a new game — must show the world where the player
+        // stopped. So on Android keep a warm screenshot: refresh at most every
+        // 2 seconds, or immediately when a save requests it. Desktop captures
+        // every N frames based on the active performance preset.
         let is_android = crate::android::is_android();
         let interval = crate::android::active_preset().save_preview_interval();
 
-        if is_android && !self.pending {
-            // Age out any stale texture so it can be GC'd; but if a preview was
-            // already taken this frame, still finish processing it below.
-            self.tick = self.tick.wrapping_add(1);
-            return;
-        }
-
         self.tick = self.tick.wrapping_add(1);
-        if self.texture.is_some() && interval > 1 && self.tick % interval != 0 && !self.pending {
+        if is_android {
+            if !self.pending
+                && self
+                    .last_capture
+                    .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(2))
+            {
+                return;
+            }
+        } else if self.texture.is_some() && interval > 1 && self.tick % interval != 0 && !self.pending
+        {
             return;
         }
         let (w, h) = macroquad::miniquad::window::screen_size();
@@ -256,6 +262,7 @@ impl Frame {
         }
         self.texture.as_ref().unwrap().grab_screen();
         self.pending = false;
+        self.last_capture = Some(std::time::Instant::now());
     }
     pub fn preview(&self) -> Option<Preview> {
         Preview::encode(self.texture.as_ref()?.get_texture_data())
