@@ -1360,6 +1360,18 @@ impl Menu {
     ) -> Action {
         show_mouse(false);
         self.refresh_saves(store);
+        // Entry grace period: on Android, the finger that tapped MENU/MAP is
+        // often still down (or re-reported as Stationary/Moved/Started by the
+        // OS) for a few frames after we enter the modal loop, even after
+        // suppress()+drain_active_touches(). During those frames the pointer
+        // is hovering on whatever button lies under that finger (e.g.
+        // "back to game"), and one stray click would dismiss the menu we
+        // just opened. So for the first ~150 ms we ignore:
+        //   - pointer clicks (new finger Started events)
+        //   - Escape / Back key
+        // Real navigation resumes once the grace frames elapse or the finger
+        // lifts, whichever comes first.
+        let mut grace_frames: u32 = 10;
         loop {
             let page = self.page.unwrap_or(Page::Main);
             let mut action = None;
@@ -1373,7 +1385,23 @@ impl Menu {
             self.selected = self.selected.min(buttons.len().saturating_sub(1));
             audio.update(0., listener, yaw, true, true);
             let canvas = Canvas::new(screen_width(), screen_height());
-            let (mouse, pointer_pressed, pointer_down) = crate::touch::pointer_state();
+            let (mouse, pointer_pressed_raw, pointer_down_raw) = crate::touch::pointer_state();
+            let any_touch_down = crate::touch::touches().iter().any(|t| {
+                matches!(t.phase, TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary)
+            });
+            // End grace when the countdown runs out OR the opening finger
+            // has lifted (no fingers on screen = safe to accept new taps).
+            if grace_frames > 0 {
+                grace_frames -= 1;
+                if !any_touch_down {
+                    grace_frames = 0;
+                }
+            }
+            let grace = grace_frames > 0;
+            // During grace, swallow pointer-pressed edges and Escape/Back so
+            // the opening finger cannot dismiss the menu.
+            let pointer_pressed = pointer_pressed_raw && !grace;
+            let pointer_down = if grace { false } else { pointer_down_raw };
             let hit = buttons
                 .iter()
                 .position(|b| b.rect.contains(canvas.pointer(mouse)));
@@ -1423,13 +1451,13 @@ impl Menu {
                     if input.ui(KeyCode::Up) {
                         self.selected = (self.selected + buttons.len() - 1) % buttons.len();
                     }
-                    let click = if page == Page::Main && input.ui(KeyCode::Tab) {
+                    let click = if page == Page::Main && input.ui(KeyCode::Tab) && !grace {
                         Some(Click::Action(Action::Chapters))
-                    } else if input.ui(KeyCode::Escape) {
+                    } else if input.ui(KeyCode::Escape) && !grace {
                         Some(Click::Back)
-                    } else if page == Page::Quit && is_key_pressed(KeyCode::Y) {
+                    } else if page == Page::Quit && is_key_pressed(KeyCode::Y) && !grace {
                         Some(Click::Action(Action::Quit))
-                    } else if page == Page::Quit && is_key_pressed(KeyCode::N) {
+                    } else if page == Page::Quit && is_key_pressed(KeyCode::N) && !grace {
                         Some(Click::Back)
                     } else if page == Page::Settings && is_key_pressed(KeyCode::Key1) {
                         Some(Click::Page(Page::Video))
