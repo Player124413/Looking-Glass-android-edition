@@ -151,10 +151,9 @@ pub fn import_archive(src: &Path, dest: &Path) -> Result<usize> {
         }
         "zip" => import_zip(src, dest),
         "7z" | "7zip" => bail!(
-            "7z archives are not supported directly. Extract '{}' on your device (e.g. with "
-            "ZArchiver) or PC to get the .pk3 files inside, then pick those .pk3 files with "
-            "Install Mod.",
-            src.file_name().and_then(|f| f.to_str()).unwrap_or("archive")
+            "7z archives are not supported directly. Extract the archive on your device \
+             (e.g. with ZArchiver) or PC to get the .pk3 files inside, then select those \
+             .pk3 files with the Install Mod button."
         ),
         other => bail!("Unsupported archive type: {other}"),
     }
