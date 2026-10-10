@@ -84,15 +84,15 @@ fn is_draining(id: u64) -> bool {
 /// when entering a modal menu/chapters/inventory so the finger that opened the
 /// modal cannot accidentally hit a button and immediately close it.
 pub fn drain_active_touches() {
+    let ts: Vec<TouchPoint> = touches().into_iter().map(Into::into).collect();
     DRAINING_IDS.with(|s| {
         let mut s = s.borrow_mut();
-        for t in touches() {
+        for t in &ts {
             if matches!(t.phase, TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary) {
                 s.insert(t.id);
             }
         }
-        // Drop any drain entries whose fingers are no longer down.
-        let live: BTreeSet<u64> = touches()
+        let live: BTreeSet<u64> = ts
             .iter()
             .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
             .map(|t| t.id)
@@ -106,10 +106,12 @@ pub fn clear_drain() {
     DRAINING_IDS.with(|s| s.borrow_mut().clear());
 }
 
-// Keep DRAINING_IDS trimmed every frame: remove IDs whose finger has lifted.
-pub fn tick_drain() {
+// Keep DRAINING_IDS trimmed using the per-frame `points` slice (caller already
+// has it from `touches()`). Does NOT re-read `touches()` so unit tests that
+// drive TouchState::update with synthetic events don't need a GL context.
+pub fn tick_drain_from(points: &[TouchPoint]) {
     DRAINING_IDS.with(|s| {
-        let live: BTreeSet<u64> = touches()
+        let live: BTreeSet<u64> = points
             .iter()
             .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
             .map(|t| t.id)
@@ -818,7 +820,7 @@ impl TouchState {
     ) {
         self.look_delta = Vec2::ZERO;
         // Trim global drain list each gameplay frame so lifted fingers stop being filtered.
-        tick_drain();
+        tick_drain_from(points);
         if !focused || prefs.touch_mode == TouchMode::Off {
             self.suppress();
             return;
