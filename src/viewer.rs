@@ -969,14 +969,11 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             mouse_look.release();
             clock.pause();
             help_until = 0.;
-            // Consume Escape / the opening MENU tap before entering the separate
-            // modal frame loop. No physics, story, enemies, power-up timers or
-            // world clocks run there. Suppress twice across the await so any
-            // touch phase Android/miniquad delivers for the still-held opening
-            // finger (Stationary / Moved / re-Started) is drained and cannot
-            // re-fire Menu or land on a menu button inside the modal loop.
+            // Drain the opening MENU/MAP finger across the await so it cannot
+            // re-fire a click inside the modal loop and immediately dismiss it.
             next_frame().await;
             input.suppress();
+            crate::touch::drain_active_touches();
             let action = escape_menu
                 .run(&mut preferences, &mut audio, &store, pos, yaw, &mut input)
                 .await;
@@ -1400,6 +1397,13 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             menu = !menu;
             inventory_menu = false;
             help_until = 0.0;
+            if menu {
+                // Drain the opening MAP finger so a still-held touch cannot
+                // immediately select a chapter entry or close the overlay.
+                clock.pause();
+                input.suppress();
+                crate::touch::drain_active_touches();
+            }
             chapters.open(
                 crate::campaign::choice_position(&level_choices, current, entry_spawn.as_deref()),
                 level_choices.len(),
@@ -1410,6 +1414,10 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             menu = false;
             help_until = 0.;
             clock.pause();
+            if inventory_menu {
+                input.suppress();
+                crate::touch::drain_active_touches();
+            }
         }
         let mut audio_changed = false;
         if pressed(KeyCode::M) {

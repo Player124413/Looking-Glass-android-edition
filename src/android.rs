@@ -118,6 +118,39 @@ fn report_native_crash_to_java(message: &str) {
     }
 }
 
+/// Call `Activity.finish()` from Rust so the app actually returns to the launcher
+/// on a clean Quit, instead of leaving a frozen/black GL surface behind.
+pub fn finish_activity() {
+    #[cfg(target_os = "android")]
+    unsafe {
+        use macroquad::miniquad::native::android::{attach_jni_env, ACTIVITY};
+        let env = attach_jni_env();
+        if env.is_null() || ACTIVITY.is_null() {
+            return;
+        }
+        let Some(get_object_class) = (**env).GetObjectClass else { return };
+        let Some(get_method_id) = (**env).GetMethodID else { return };
+        let Some(call_void_method) = (**env).CallVoidMethod else { return };
+        let class = get_object_class(env, ACTIVITY);
+        if class.is_null() {
+            return;
+        }
+        // android.app.Activity.finish()V
+        let Ok(name) = std::ffi::CString::new("finish") else { return };
+        let Ok(sig) = std::ffi::CString::new("()V") else { return };
+        let mid = get_method_id(env, class, name.as_ptr() as _, sig.as_ptr() as _);
+        if !mid.is_null() {
+            call_void_method(env, ACTIVITY, mid);
+        }
+        if let Some(exc) = (**env).ExceptionCheck {
+            if exc(env) != 0 {
+                if let Some(clear) = (**env).ExceptionClear { clear(env); }
+            }
+        }
+        if let Some(del) = (**env).DeleteLocalRef { del(env, class); }
+    }
+}
+
 /// Target frame rate cap selectable in the Android Launcher and Video Settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

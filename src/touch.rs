@@ -2,6 +2,7 @@
 use crate::{preferences::Preferences, ui::Ui};
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 const STICK_DEADZONE: f32 = 0.14;
@@ -36,20 +37,31 @@ impl TouchMode {
 }
 
 /// Unifies mouse cursor state and primary touch point for menus, chapters and inventory UI.
+///
+/// A global set of "draining" touch IDs filters out fingers that were already held
+/// when a modal (menu/chapters/etc.) opened. Without this, a still-held finger on
+/// the MENU/MAP/... button is reported as `pointer_pressed=true` on the modal's
+/// first frames (Stationary phase, but `touches()` is read raw), which
+/// hit-tests whatever button lies under it and instantly dismisses the modal.
+///
+/// Call [`drain_active_touches`] on entry to a modal (after the prior `suppress()`
+/// + `next_frame().await`) to snapshot currently-live fingers; those fingers are
+/// ignored for click purposes until they leave the screen.
 pub fn pointer_state() -> (Vec2, bool, bool) {
     let ts = touches();
-    if let Some(t) = ts.iter().find(|t| {
-        matches!(
-            t.phase,
-            TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary
-        )
-    }) {
-        let started = ts.iter().any(|t| t.phase == TouchPhase::Started);
-        (
-            t.position,
-            started || is_mouse_button_pressed(MouseButton::Left),
-            true,
-        )
+    // Candidate pointers: stationary/moved/started touches that are NOT being drained.
+    let mut live = ts.iter().filter(|t| {
+        !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled)
+            && !is_draining(t.id)
+    });
+    if let Some(t) = live.next() {
+        // "pressed" edge = a genuinely new Started finger that is not draining.
+        // A lingering Stationary/Moved finger from before the modal opened is
+        // excluded even if its phase was re-sent as Started by Android.
+        let started = ts
+            .iter()
+            .any(|t| t.phase == TouchPhase::Started && !is_draining(t.id));
+        (t.position, started, true)
     } else {
         (
             Vec2::from(mouse_position()),
@@ -57,6 +69,53 @@ pub fn pointer_state() -> (Vec2, bool, bool) {
             is_mouse_button_down(MouseButton::Left),
         )
     }
+}
+
+thread_local! {
+    static DRAINING_IDS: RefCell<BTreeSet<u64>> = RefCell::new(BTreeSet::new());
+}
+
+fn is_draining(id: u64) -> bool {
+    DRAINING_IDS.with(|s| s.borrow().contains(&id))
+}
+
+/// Mark every currently-held touch finger as "draining": it will be ignored by
+/// [`pointer_state`] for click/press purposes until the finger lifts. Use this
+/// when entering a modal menu/chapters/inventory so the finger that opened the
+/// modal cannot accidentally hit a button and immediately close it.
+pub fn drain_active_touches() {
+    DRAINING_IDS.with(|s| {
+        let mut s = s.borrow_mut();
+        for t in touches() {
+            if matches!(t.phase, TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary) {
+                s.insert(t.id);
+            }
+        }
+        // Drop any drain entries whose fingers are no longer down.
+        let live: BTreeSet<u64> = touches()
+            .iter()
+            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
+            .map(|t| t.id)
+            .collect();
+        s.retain(|id| live.contains(id));
+    });
+}
+
+/// Clear all drain state. Called implicitly when the drained fingers lift.
+pub fn clear_drain() {
+    DRAINING_IDS.with(|s| s.borrow_mut().clear());
+}
+
+// Keep DRAINING_IDS trimmed every frame: remove IDs whose finger has lifted.
+pub fn tick_drain() {
+    DRAINING_IDS.with(|s| {
+        let live: BTreeSet<u64> = touches()
+            .iter()
+            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
+            .map(|t| t.id)
+            .collect();
+        s.borrow_mut().retain(|id| live.contains(id));
+    });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -758,6 +817,8 @@ impl TouchState {
         focused: bool,
     ) {
         self.look_delta = Vec2::ZERO;
+        // Trim global drain list each gameplay frame so lifted fingers stop being filtered.
+        tick_drain();
         if !focused || prefs.touch_mode == TouchMode::Off {
             self.suppress();
             return;
