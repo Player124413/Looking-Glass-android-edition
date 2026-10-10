@@ -768,7 +768,7 @@ impl TouchState {
         &mut self,
         t: &TouchPoint,
         layout: &Layout,
-        screen: Vec2,
+        _screen: Vec2,
         can_press_buttons: bool,
     ) {
         // Try to claim this touch as a button / stick / look finger.
