@@ -47,44 +47,47 @@ impl TouchMode {
 /// Call [`drain_active_touches`] on entry to a modal (after the prior `suppress()`
 /// + `next_frame().await`) to snapshot currently-live fingers; those fingers are
 /// ignored for click purposes until they leave the screen.
+///
+/// Presses are detected by touch-ID edge AND include *fast taps*. macroquad keeps
+/// only the LAST event per finger, so a tap that goes down AND up between two
+/// frames reaches us as a single Ended/Cancelled point (its Started was
+/// overwritten, and the entry is purged at the end of the frame). Such a point is
+/// a complete click and must fire — dropping it is why buttons felt broken on
+/// slow devices where frames are longer than a tap.
 pub fn pointer_state() -> (Vec2, bool, bool) {
     let ts = touches();
-    // Candidate pointers: stationary/moved/started touches that are NOT being drained.
-    let mut live = ts.iter().filter(|t| {
-        !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled)
-            && !is_draining(t.id)
-    });
-    let pressed = if let Some(first) = live.next() {
-        // Detect a "new press" by touch-id edge rather than by phase. Android
-        // does not guarantee that a tap's first event arrives as Started — on
-        // slow/overloaded devices the frame in which Started would have fired
-        // is often missed and the finger appears as Stationary on the first
-        // frame we sample. Triggering on any *new* (previously unseen) id makes
-        // taps register every frame a finger appears, regardless of phase.
-        let prev = PREV_POINTER_IDS.with(|s| s.borrow().clone());
-        let any_new = !prev.contains(&first.id)
-            || ts.iter()
-                .filter(|t| {
-                    !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled)
-                        && !is_draining(t.id)
-                })
-                .any(|t| !prev.contains(&t.id));
-        let now: BTreeSet<u64> = ts
-            .iter()
-            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
-            .map(|t| t.id)
-            .collect();
-        PREV_POINTER_IDS.with(|s| *s.borrow_mut() = now);
-        any_new
-    } else {
-        PREV_POINTER_IDS.with(|s| s.borrow_mut().clear());
-        false
-    };
-    if let Some(t) = ts
-        .iter()
-        .find(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled) && !is_draining(t.id))
+    let mut pressed = false;
+    let mut press_pos: Option<Vec2> = None;
+    let mut live_pos: Option<Vec2> = None;
+    let mut down = false;
+    let mut now: BTreeSet<u64> = BTreeSet::new();
     {
-        (t.position, pressed, true)
+        let prev = PREV_POINTER_IDS.with(|s| s.borrow().clone());
+        for t in &ts {
+            if is_draining(t.id) {
+                continue;
+            }
+            now.insert(t.id);
+            let live = !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled);
+            if live {
+                down = true;
+                if live_pos.is_none() {
+                    live_pos = Some(t.position);
+                }
+            }
+            if !prev.contains(&t.id) {
+                // New pointer id: a fresh finger (any phase — Android is free to
+                // skip the Started) or a complete fast tap in one batch.
+                pressed = true;
+                if press_pos.is_none() {
+                    press_pos = Some(t.position);
+                }
+            }
+        }
+    }
+    PREV_POINTER_IDS.with(|s| *s.borrow_mut() = now);
+    if let Some(pos) = press_pos.or(live_pos) {
+        (pos, pressed, down)
     } else {
         (
             Vec2::from(mouse_position()),
@@ -123,16 +126,12 @@ pub fn drain_active_touches() {
             .collect();
         s.retain(|id| live.contains(id));
     });
-    // Also seed PREV_POINTER_IDS with the current live set: a finger that was
-    // already held before entering this screen should NOT be treated as a new
-    // press on the first frame it's sampled.
+    // Also seed PREV_POINTER_IDS with every id currently present (ANY phase):
+    // a finger already held — or a fast tap that just completed and only exists
+    // as an Ended point — must not fire as a fresh press on the modal's first
+    // frame.
     PREV_POINTER_IDS.with(|s| {
-        let now: BTreeSet<u64> = ts
-            .iter()
-            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
-            .map(|t| t.id)
-            .collect();
-        *s.borrow_mut() = now;
+        *s.borrow_mut() = ts.iter().map(|t| t.id).collect();
     });
 }
 
@@ -763,6 +762,7 @@ pub struct TouchState {
     suppressed_ids: BTreeSet<u64>,
     down: u32,
     pressed: u32,
+    tapped: bool,
     pub sprint_locked: bool,
     had_touch_input: bool,
 }
@@ -791,9 +791,11 @@ impl TouchState {
         self.ui_pressed(KeyCode::Escape)
     }
 
+    /// True when a fresh tap landed anywhere this frame — including *fast taps*
+    /// that only ever appear as a single Ended point (see [`pointer_state`]).
+    /// Computed in [`TouchState::update`] from the same batch the HUD uses.
     pub fn screen_tapped(&self) -> bool {
-        touches().iter().any(|t| t.phase == TouchPhase::Started)
-            || is_mouse_button_pressed(MouseButton::Left)
+        self.tapped || is_mouse_button_pressed(MouseButton::Left)
     }
 
     pub fn suppress(&mut self) {
@@ -868,6 +870,7 @@ impl TouchState {
         focused: bool,
     ) {
         self.look_delta = Vec2::ZERO;
+        self.tapped = false;
         // Trim global drain list each gameplay frame so lifted fingers stop being filtered.
         tick_drain_from(points);
         if !focused || prefs.touch_mode == TouchMode::Off {
@@ -917,6 +920,7 @@ impl TouchState {
         // one tick so the pressed edge fires, and release it next frame cleanly.
         let paired_taps: BTreeSet<u64> = &started_ids & &ended_ids;
         let same_frame_taps: BTreeSet<u64> = &paired_taps | &orphan_end_ids;
+        self.tapped = !started_ids.is_empty() || !same_frame_taps.is_empty();
 
         for t in points {
             if self.suppressed_ids.contains(&t.id) || !t.position.is_finite() {
