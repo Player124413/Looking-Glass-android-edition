@@ -1393,7 +1393,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 menu = false;
             }
         }
-        if pressed(KeyCode::Tab) {
+        let tab_pressed = pressed(KeyCode::Tab);
+        let inv_pressed = pressed(KeyCode::I) && focused;
+        if tab_pressed {
             menu = !menu;
             inventory_menu = false;
             help_until = 0.0;
@@ -1401,23 +1403,28 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                 // Drain the opening MAP finger so a still-held touch cannot
                 // immediately select a chapter entry or close the overlay.
                 clock.pause();
-                input.suppress();
-                crate::touch::drain_active_touches();
             }
             chapters.open(
                 crate::campaign::choice_position(&level_choices, current, entry_spawn.as_deref()),
                 level_choices.len(),
             );
         }
-        if pressed(KeyCode::I) && focused {
+        if inv_pressed {
             inventory_menu = !inventory_menu;
             menu = false;
             help_until = 0.;
             clock.pause();
-            if inventory_menu {
-                input.suppress();
-                crate::touch::drain_active_touches();
-            }
+        }
+        // Suppress+drain after the `pressed` closure's borrow of `input` ends,
+        // so a still-held opening finger can't accidentally click the newly
+        // opened overlay on its first frame.
+        if tab_pressed && menu {
+            input.suppress();
+            crate::touch::drain_active_touches();
+        }
+        if inv_pressed && inventory_menu {
+            input.suppress();
+            crate::touch::drain_active_touches();
         }
         let mut audio_changed = false;
         if pressed(KeyCode::M) {
