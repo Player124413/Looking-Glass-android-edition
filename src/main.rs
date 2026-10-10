@@ -204,6 +204,11 @@ fn run() -> Result<()> {
                 eprintln!("Viewer failed: {e:#}");
             }
             macroquad::miniquad::window::request_quit();
+            // On Android `request_quit()` only stops the render loop; it does
+            // not always tear the GL surface down, leaving a black window when
+            // the player picks "Quit" from the menu. Explicitly finish the
+            // Activity so we return to the home/launcher screen.
+            crate::android::finish_activity();
         });
         android::install_panic_hook();
         return Ok(());

@@ -2,6 +2,7 @@
 use crate::{preferences::Preferences, ui::Ui};
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 const STICK_DEADZONE: f32 = 0.14;
@@ -36,20 +37,57 @@ impl TouchMode {
 }
 
 /// Unifies mouse cursor state and primary touch point for menus, chapters and inventory UI.
+///
+/// A global set of "draining" touch IDs filters out fingers that were already held
+/// when a modal (menu/chapters/etc.) opened. Without this, a still-held finger on
+/// the MENU/MAP/... button is reported as `pointer_pressed=true` on the modal's
+/// first frames (Stationary phase, but `touches()` is read raw), which
+/// hit-tests whatever button lies under it and instantly dismisses the modal.
+///
+/// Call [`drain_active_touches`] on entry to a modal (after the prior `suppress()`
+/// + `next_frame().await`) to snapshot currently-live fingers; those fingers are
+/// ignored for click purposes until they leave the screen.
+///
+/// Presses are detected by touch-ID edge AND include *fast taps*. macroquad keeps
+/// only the LAST event per finger, so a tap that goes down AND up between two
+/// frames reaches us as a single Ended/Cancelled point (its Started was
+/// overwritten, and the entry is purged at the end of the frame). Such a point is
+/// a complete click and must fire — dropping it is why buttons felt broken on
+/// slow devices where frames are longer than a tap.
 pub fn pointer_state() -> (Vec2, bool, bool) {
     let ts = touches();
-    if let Some(t) = ts.iter().find(|t| {
-        matches!(
-            t.phase,
-            TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary
-        )
-    }) {
-        let started = ts.iter().any(|t| t.phase == TouchPhase::Started);
-        (
-            t.position,
-            started || is_mouse_button_pressed(MouseButton::Left),
-            true,
-        )
+    let mut pressed = false;
+    let mut press_pos: Option<Vec2> = None;
+    let mut live_pos: Option<Vec2> = None;
+    let mut down = false;
+    let mut now: BTreeSet<u64> = BTreeSet::new();
+    {
+        let prev = PREV_POINTER_IDS.with(|s| s.borrow().clone());
+        for t in &ts {
+            if is_draining(t.id) {
+                continue;
+            }
+            now.insert(t.id);
+            let live = !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled);
+            if live {
+                down = true;
+                if live_pos.is_none() {
+                    live_pos = Some(t.position);
+                }
+            }
+            if !prev.contains(&t.id) {
+                // New pointer id: a fresh finger (any phase — Android is free to
+                // skip the Started) or a complete fast tap in one batch.
+                pressed = true;
+                if press_pos.is_none() {
+                    press_pos = Some(t.position);
+                }
+            }
+        }
+    }
+    PREV_POINTER_IDS.with(|s| *s.borrow_mut() = now);
+    if let Some(pos) = press_pos.or(live_pos) {
+        (pos, pressed, down)
     } else {
         (
             Vec2::from(mouse_position()),
@@ -57,6 +95,77 @@ pub fn pointer_state() -> (Vec2, bool, bool) {
             is_mouse_button_down(MouseButton::Left),
         )
     }
+}
+
+thread_local! {
+    static DRAINING_IDS: RefCell<BTreeSet<u64>> = RefCell::new(BTreeSet::new());
+    static PREV_POINTER_IDS: RefCell<BTreeSet<u64>> = RefCell::new(BTreeSet::new());
+}
+
+fn is_draining(id: u64) -> bool {
+    DRAINING_IDS.with(|s| s.borrow().contains(&id))
+}
+
+/// Mark every currently-held touch finger as "draining": it will be ignored by
+/// [`pointer_state`] for click/press purposes until the finger lifts. Use this
+/// when entering a modal menu/chapters/inventory so the finger that opened the
+/// modal cannot accidentally hit a button and immediately close it.
+pub fn drain_active_touches() {
+    let ts: Vec<TouchPoint> = touches().into_iter().map(Into::into).collect();
+    DRAINING_IDS.with(|s| {
+        let mut s = s.borrow_mut();
+        for t in &ts {
+            if matches!(t.phase, TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary) {
+                s.insert(t.id);
+            }
+        }
+        let live: BTreeSet<u64> = ts
+            .iter()
+            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
+            .map(|t| t.id)
+            .collect();
+        s.retain(|id| live.contains(id));
+    });
+    // Also seed PREV_POINTER_IDS with every id currently present (ANY phase):
+    // a finger already held — or a fast tap that just completed and only exists
+    // as an Ended point — must not fire as a fresh press on the modal's first
+    // frame.
+    PREV_POINTER_IDS.with(|s| {
+        *s.borrow_mut() = ts.iter().map(|t| t.id).collect();
+    });
+}
+
+/// Clear all drain state. Called implicitly when the drained fingers lift,
+/// or explicitly when returning to a state where leftover fingers should be
+/// treated as fresh (e.g. entering gameplay from the launcher).
+pub fn clear_drain() {
+    DRAINING_IDS.with(|s| s.borrow_mut().clear());
+    PREV_POINTER_IDS.with(|s| s.borrow_mut().clear());
+}
+
+/// Seed the per-frame touch-id tracker with the fingers currently on screen.
+/// Used when entering a fresh screen (e.g. the launcher) so that already-held
+/// fingers aren't falsely reported as a new "press" on the very first frame.
+pub fn seed_pointer_state() {
+    drain_active_touches();
+    // drain_active_touches both drains AND seeds PREV_POINTER_IDS — but we
+    // actually don't want to DRAIN those fingers, only seed the tracker.
+    // So drop the draining set it populated.
+    DRAINING_IDS.with(|s| s.borrow_mut().clear());
+}
+
+// Keep DRAINING_IDS trimmed using the per-frame `points` slice (caller already
+// has it from `touches()`). Does NOT re-read `touches()` so unit tests that
+// drive TouchState::update with synthetic events don't need a GL context.
+pub fn tick_drain_from(points: &[TouchPoint]) {
+    DRAINING_IDS.with(|s| {
+        let live: BTreeSet<u64> = points
+            .iter()
+            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
+            .map(|t| t.id)
+            .collect();
+        s.borrow_mut().retain(|id| live.contains(id));
+    });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -653,8 +762,8 @@ pub struct TouchState {
     suppressed_ids: BTreeSet<u64>,
     down: u32,
     pressed: u32,
+    tapped: bool,
     pub sprint_locked: bool,
-    outer_ring_sprint: bool,
     had_touch_input: bool,
 }
 
@@ -682,9 +791,11 @@ impl TouchState {
         self.ui_pressed(KeyCode::Escape)
     }
 
+    /// True when a fresh tap landed anywhere this frame — including *fast taps*
+    /// that only ever appear as a single Ended point (see [`pointer_state`]).
+    /// Computed in [`TouchState::update`] from the same batch the HUD uses.
     pub fn screen_tapped(&self) -> bool {
-        touches().iter().any(|t| t.phase == TouchPhase::Started)
-            || is_mouse_button_pressed(MouseButton::Left)
+        self.tapped || is_mouse_button_pressed(MouseButton::Left)
     }
 
     pub fn suppress(&mut self) {
@@ -702,7 +813,53 @@ impl TouchState {
         self.look_delta = Vec2::ZERO;
         self.down = 0;
         self.pressed = 0;
-        self.outer_ring_sprint = false;
+    }
+
+    fn assign_new_touch(
+        &mut self,
+        t: &TouchPoint,
+        layout: &Layout,
+        _screen: Vec2,
+        can_press_buttons: bool,
+    ) {
+        // Try to claim this touch as a button / stick / look finger.
+        // Order: button hit first, then stick zone, then look (camera drag).
+        // When `can_press_buttons` is false (i.e. we are picking up an
+        // orphaned Moved/Stationary event after a suppress/menu boundary),
+        // skip button claims. A real button press always arrives as Started
+        // (or a fast Ended tap) in the same batch — re-binding a lingering
+        // held finger as a new button press would auto-close menus and
+        // re-fire HUD actions the user never re-tapped.
+        if can_press_buttons {
+            if let Some(button) = layout.hit_button(t.position) {
+                if button == TouchButton::RunLock {
+                    // Run is a pure toggle: each press flips the lock. The finger does NOT
+                    // hold it down — sprint only stays on while `sprint_locked` is true.
+                    self.sprint_locked = !self.sprint_locked;
+                }
+                self.button_touches.insert(t.id, button);
+                if button.allows_look_drag() && self.look_touch.is_none() {
+                    self.look_touch = Some(t.id);
+                    self.look_prev = t.position;
+                }
+                return;
+            }
+        }
+        if self.stick_touch.is_none() && layout.in_stick_zone(t.position) {
+            self.stick_touch = Some(t.id);
+            // Fixed virtual stick: the knob's origin stays at the button's
+            // configured position regardless of where exactly in the zone the
+            // finger first lands. The finger only controls the offset from
+            // that fixed center (with deadzone + clamping to stick_radius).
+            self.stick_origin = layout.stick_default;
+            self.stick_pos = self.stick_origin;
+            self.move_axis = Vec2::ZERO;
+            return;
+        }
+        if self.look_touch.is_none() {
+            self.look_touch = Some(t.id);
+            self.look_prev = t.position;
+        }
     }
 
     pub fn update(
@@ -713,6 +870,9 @@ impl TouchState {
         focused: bool,
     ) {
         self.look_delta = Vec2::ZERO;
+        self.tapped = false;
+        // Trim global drain list each gameplay frame so lifted fingers stop being filtered.
+        tick_drain_from(points);
         if !focused || prefs.touch_mode == TouchMode::Off {
             self.suppress();
             return;
@@ -730,37 +890,62 @@ impl TouchState {
 
         let layout = Layout::build(screen, prefs, self.context);
 
+        // First pass: identify rapid taps so their `pressed` edge always fires
+        // even if finger-down and finger-up happen within the same event batch.
+        let mut started_ids: BTreeSet<u64> = BTreeSet::new();
+        let mut ended_ids: BTreeSet<u64> = BTreeSet::new();
+        let mut orphan_end_ids: BTreeSet<u64> = BTreeSet::new();
         for t in points {
             if self.suppressed_ids.contains(&t.id) || !t.position.is_finite() {
                 continue;
             }
+            let known = self.stick_touch == Some(t.id)
+                || self.look_touch == Some(t.id)
+                || self.button_touches.contains_key(&t.id);
             match t.phase {
                 TouchPhase::Started => {
-                    if let Some(button) = layout.hit_button(t.position) {
-                        if button == TouchButton::RunLock {
-                            self.sprint_locked = !self.sprint_locked;
-                        }
-                        self.button_touches.insert(t.id, button);
-                        if button.allows_look_drag() && self.look_touch.is_none() {
-                            self.look_touch = Some(t.id);
-                            self.look_prev = t.position;
-                        }
-                    } else if self.stick_touch.is_none() && layout.in_stick_zone(t.position) {
-                        self.stick_touch = Some(t.id);
-                        let margin = layout.stick_radius + 16. * layout.scale;
-                        self.stick_origin = vec2(
-                            t.position.x.clamp(margin, screen.x - margin),
-                            t.position.y.clamp(margin, screen.y - margin),
-                        );
-                        self.stick_pos = self.stick_origin;
-                        self.move_axis = Vec2::ZERO;
-                        self.outer_ring_sprint = false;
-                    } else if self.look_touch.is_none() {
-                        self.look_touch = Some(t.id);
-                        self.look_prev = t.position;
+                    started_ids.insert(t.id);
+                }
+                TouchPhase::Ended | TouchPhase::Cancelled => {
+                    ended_ids.insert(t.id);
+                    if !known {
+                        orphan_end_ids.insert(t.id);
                     }
                 }
+                _ => {}
+            }
+        }
+        // A fast tap whose Down and Up both arrive this frame, OR whose Up arrives
+        // alone (OS coalesced events / dropped Started). Keep the entry alive for
+        // one tick so the pressed edge fires, and release it next frame cleanly.
+        let paired_taps: BTreeSet<u64> = &started_ids & &ended_ids;
+        let same_frame_taps: BTreeSet<u64> = &paired_taps | &orphan_end_ids;
+        self.tapped = !started_ids.is_empty() || !same_frame_taps.is_empty();
+
+        for t in points {
+            if self.suppressed_ids.contains(&t.id) || !t.position.is_finite() {
+                continue;
+            }
+            let known = self.stick_touch == Some(t.id)
+                || self.look_touch == Some(t.id)
+                || self.button_touches.contains_key(&t.id);
+            match t.phase {
+                TouchPhase::Started => {
+                    // A genuine new finger — can press any button/stick/look.
+                    self.assign_new_touch(t, &layout, screen, true);
+                }
                 TouchPhase::Moved | TouchPhase::Stationary => {
+                    if !known {
+                        // Orphaned motion: Android/miniquad can skip the Started event
+                        // (e.g. when multiple fingers land/change within the same frame,
+                        // or during a brief app/input hiccup). Claim stick/look drags on
+                        // the fly so camera/joystick stay responsive, but DO NOT bind
+                        // this to a HUD button — a real button press always arrives as
+                        // a Started (or fast Ended tap) event; otherwise a still-held
+                        // finger crossing the suppress/menu boundary would re-fire the
+                        // Menu button and instantly close the menu we just opened.
+                        self.assign_new_touch(t, &layout, screen, false);
+                    }
                     if self.stick_touch == Some(t.id) {
                         let offset = t.position - self.stick_origin;
                         let max_r = layout.stick_radius.max(1.);
@@ -770,12 +955,11 @@ impl TouchState {
                         let len = norm.length();
                         if len <= STICK_DEADZONE {
                             self.move_axis = Vec2::ZERO;
-                            self.outer_ring_sprint = false;
                         } else {
-                            let scaled =
-                                ((len.min(1.) - STICK_DEADZONE) / (1. - STICK_DEADZONE)).clamp(0., 1.);
+                            let scaled = ((len.min(1.) - STICK_DEADZONE)
+                                / (1. - STICK_DEADZONE))
+                            .clamp(0., 1.);
                             self.move_axis = norm / len * scaled;
-                            self.outer_ring_sprint = len >= STICK_SPRINT_RING;
                         }
                     }
                     if self.look_touch == Some(t.id) {
@@ -787,34 +971,48 @@ impl TouchState {
                     }
                 }
                 TouchPhase::Ended | TouchPhase::Cancelled => {
+                    if !known {
+                        // A tap whose Started was never seen (dropped by OS/driver)
+                        // — this can still be a valid quick tap on a button, so allow
+                        // button claims here so the pressed edge fires before we
+                        // release it below. Moved/Stationary orphans (above) stay
+                        // non-button so lingering held fingers don't re-fire HUD taps.
+                        self.assign_new_touch(t, &layout, screen, true);
+                    }
                     if self.stick_touch == Some(t.id) {
                         self.stick_touch = None;
                         self.move_axis = Vec2::ZERO;
-                        self.outer_ring_sprint = false;
                     }
                     if self.look_touch == Some(t.id) {
                         self.look_touch = None;
                     }
-                    self.button_touches.remove(&t.id);
+                    if !same_frame_taps.contains(&t.id) {
+                        self.button_touches.remove(&t.id);
+                    }
                 }
             }
         }
 
-        if self.stick_touch.is_some_and(|id| !live_ids.contains(&id)) {
+        if self.stick_touch.is_some_and(|id| !live_ids.contains(&id) && !same_frame_taps.contains(&id))
+        {
             self.stick_touch = None;
             self.move_axis = Vec2::ZERO;
-            self.outer_ring_sprint = false;
         }
-        if self.look_touch.is_some_and(|id| !live_ids.contains(&id)) {
+        if self.look_touch.is_some_and(|id| !live_ids.contains(&id) && !same_frame_taps.contains(&id)) {
             self.look_touch = None;
         }
-        self.button_touches.retain(|id, _| live_ids.contains(id));
+        self.button_touches
+            .retain(|id, _| live_ids.contains(id) || same_frame_taps.contains(id));
 
+        // Compute held-button mask. RunLock is NEVER held by finger pressure —
+        // sprint only activates via the toggle (sprint_locked) while moving.
         let mut next_down = 0u32;
         for &button in self.button_touches.values() {
-            next_down |= button.bit();
+            if button != TouchButton::RunLock {
+                next_down |= button.bit();
+            }
         }
-        if (self.sprint_locked || self.outer_ring_sprint) && self.move_axis != Vec2::ZERO {
+        if self.sprint_locked && self.move_axis != Vec2::ZERO {
             next_down |= TouchButton::RunLock.bit();
         }
         self.pressed = next_down & !self.down;
@@ -892,13 +1090,6 @@ impl TouchState {
         let layout = Layout::build(screen, prefs, self.context);
         let alpha = prefs.touch_opacity.clamp(0.2, 1.0);
         let s = layout.scale;
-
-        let base_fill = Color::new(0.11, 0.08, 0.13, 0.58 * alpha);
-        let active_fill = Color::new(0.58, 0.16, 0.15, 0.82 * alpha);
-        let highlight_fill = Color::new(0.36, 0.24, 0.12, 0.72 * alpha);
-        let border = Color::new(0.78, 0.64, 0.44, 0.78 * alpha);
-        let highlight_border = Color::new(0.96, 0.82, 0.46, 0.95 * alpha);
-        let text_color = Color::new(0.95, 0.90, 0.80, 0.92 * alpha);
 
         // Draw virtual movement stick when alive, visible, and inventory is closed.
         if layout.stick_visible
@@ -1514,11 +1705,44 @@ mod tests {
             true,
         );
         assert!(touch.move_axis().x > 0.1 && touch.move_axis().y > 0.5);
-        assert!(touch.action("Shift", false));
+        // Sprint is no longer triggered by pushing the joystick past an outer ring —
+        // it is exclusively controlled by the RUN toggle button.
+        assert!(!touch.action("Shift", false));
         let look = touch.look_radians(screen.y, &prefs);
         assert!(look.x > 0.1 && look.y < -0.05);
 
-        // Release Finger 1; Finger 2 remains active.
+        // Tapping RUN toggles sprint lock; sprint becomes active while moving.
+        let run_pos = Layout::build(screen, &prefs, touch.context)
+            .buttons
+            .iter()
+            .find(|b| b.button == TouchButton::RunLock)
+            .unwrap()
+            .center;
+        touch.update(
+            &[
+                TouchPoint {
+                    id: 1,
+                    phase: TouchPhase::Moved,
+                    position: vec2(260., 760.),
+                },
+                TouchPoint {
+                    id: 2,
+                    phase: TouchPhase::Moved,
+                    position: vec2(1320., 440.),
+                },
+                TouchPoint {
+                    id: 3,
+                    phase: TouchPhase::Started,
+                    position: run_pos,
+                },
+            ],
+            screen,
+            &prefs,
+            true,
+        );
+        assert!(touch.action("Shift", false));
+
+        // Release Finger 1; Finger 2 remains active. Sprint drops without movement.
         touch.update(
             &[
                 TouchPoint {
@@ -1531,12 +1755,18 @@ mod tests {
                     phase: TouchPhase::Stationary,
                     position: vec2(1320., 440.),
                 },
+                TouchPoint {
+                    id: 3,
+                    phase: TouchPhase::Ended,
+                    position: run_pos,
+                },
             ],
             screen,
             &prefs,
             true,
         );
         assert_eq!(touch.move_axis(), Vec2::ZERO);
+        assert!(!touch.action("Shift", false));
         assert_eq!(touch.look_radians(screen.y, &prefs), Vec2::ZERO);
     }
 

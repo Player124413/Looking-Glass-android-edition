@@ -30,18 +30,24 @@ impl Assets {
         }
         Ok(format!("{:x}", hash.finalize()))
     }
+
+    /// Open the PK3 corpus at `base`. Convenience wrapper around [`Self::open_with_mods`].
     pub fn open(base: &Path) -> Result<Self> {
-        let mut paths = fs::read_dir(base)
-            .with_context(|| {
-                format!(
-                    "Cannot read game data at {}. Pass --data <base folder>.",
-                    base.display()
-                )
-            })?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|s| s.eq_ignore_ascii_case("pk3")))
-            .collect::<Vec<_>>();
-        paths.sort_by_key(|p| p.file_name().unwrap_or_default().to_ascii_lowercase());
+        Self::open_with_mods(base, None)
+    }
+
+    /// Open the PK3 corpus at `base` with any mod packs from `mods_dir` layered
+    /// on top. Mod packs are loaded alphabetically AFTER the base packs so any
+    /// file they contain overrides the original (same way pak5_mod.pk3 wins
+    /// over pak0..pak3). A missing/empty `mods_dir` is silently tolerated so
+    /// launching without mods installed works unchanged.
+    pub fn open_with_mods(base: &Path, mods_dir: Option<&Path>) -> Result<Self> {
+        let mut paths = collect_pk3_paths(base)?;
+        if let Some(mods) = mods_dir {
+            if let Ok(mut mod_paths) = collect_pk3_paths(mods) {
+                paths.append(&mut mod_paths);
+            }
+        }
         if paths.is_empty() {
             bail!("No PK3 archives found in {}", base.display());
         }
@@ -109,6 +115,104 @@ impl Assets {
             .collect()
     }
 }
+
+fn collect_pk3_paths(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = fs::read_dir(dir)
+        .with_context(|| format!("Cannot read folder {}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file() && p.extension().is_some_and(|s| s.eq_ignore_ascii_case("pk3")))
+        .collect::<Vec<_>>();
+    paths.sort_by_key(|p| p.file_name().unwrap_or_default().to_ascii_lowercase());
+    Ok(paths)
+}
+
+/// Extract the contents of a ZIP archive (or copy a .pk3) into `dest`.
+/// Writes any .pk3 files encountered (and recursively any nested .zip files
+/// inside) into `dest`. Used by the "Select PK3 / ZIP" flow on the launcher.
+pub fn import_archive(src: &Path, dest: &Path) -> Result<usize> {
+    fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
+    let lower = src
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    match lower.as_str() {
+        "pk3" => {
+            let target = dest.join(src.file_name().context("archive without filename")?);
+            fs::copy(src, &target)
+                .with_context(|| format!("copying {} -> {}", src.display(), target.display()))?;
+            Ok(1)
+        }
+        "zip" => import_zip(src, dest),
+        "7z" | "7zip" => bail!("7z archives are not supported. Extract the archive on your device (e.g. with ZArchiver) or PC first, then select the .pk3 files inside."),
+        other => bail!("Unsupported archive type: {other}"),
+    }
+}
+
+fn import_zip(src: &Path, dest: &Path) -> Result<usize> {
+    let file = File::open(src)?;
+    let mut zip = ZipArchive::new(BufReader::with_capacity(64 * 1024, file))
+        .with_context(|| format!("Invalid ZIP: {}", src.display()))?;
+    let tmp_dir = dest.join(".tmp_mod_extract");
+    fs::create_dir_all(&tmp_dir).ok();
+    let mut count = 0usize;
+    let n = zip.len();
+    for i in 0..n {
+        let (name, is_dir): (String, bool) = {
+            let entry = zip.by_index(i)?;
+            (entry.name().to_owned(), entry.is_dir())
+        };
+        let rel = sanitize_archive_path(&name);
+        if rel.is_empty() || is_dir {
+            continue;
+        }
+        let lower = rel.rsplit('/').next().unwrap_or("").to_ascii_lowercase();
+        let out_path = if lower.ends_with(".pk3") {
+            dest.join(&rel)
+        } else if lower.ends_with(".zip") {
+            tmp_dir.join(&rel)
+        } else {
+            continue;
+        };
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
+        {
+            let mut entry = zip.by_index(i)?;
+            let mut f = File::create(&out_path)
+                .with_context(|| format!("writing {}", out_path.display()))?;
+            std::io::copy(&mut BufReader::new(&mut entry).take(512 * 1024 * 1024), &mut f).ok();
+        }
+        if lower.ends_with(".pk3") {
+            count += 1;
+        } else {
+            if let Ok(n) = import_archive(&out_path, dest) {
+                count += n;
+            }
+            let _ = fs::remove_file(&out_path);
+        }
+    }
+    let _ = fs::remove_dir_all(&tmp_dir);
+    Ok(count)
+}
+
+fn sanitize_archive_path(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for part in name.replace('\\', "/").split('/') {
+        if part.is_empty() || part == "." || part == ".." {
+            continue;
+        }
+        if part.ends_with(':') && part.len() == 2 {
+            continue; // Windows drive letter
+        }
+        if !out.is_empty() {
+            out.push('/');
+        }
+        out.push_str(part);
+    }
+    out.to_ascii_lowercase()
+}
+
 fn normalize(s: &str) -> String {
     s.replace('\\', "/").to_ascii_lowercase()
 }

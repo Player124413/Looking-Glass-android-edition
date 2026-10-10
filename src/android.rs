@@ -118,6 +118,39 @@ fn report_native_crash_to_java(message: &str) {
     }
 }
 
+/// Call `Activity.finish()` from Rust so the app actually returns to the launcher
+/// on a clean Quit, instead of leaving a frozen/black GL surface behind.
+pub fn finish_activity() {
+    #[cfg(target_os = "android")]
+    unsafe {
+        use macroquad::miniquad::native::android::{attach_jni_env, ACTIVITY};
+        let env = attach_jni_env();
+        if env.is_null() || ACTIVITY.is_null() {
+            return;
+        }
+        let Some(get_object_class) = (**env).GetObjectClass else { return };
+        let Some(get_method_id) = (**env).GetMethodID else { return };
+        let Some(call_void_method) = (**env).CallVoidMethod else { return };
+        let class = get_object_class(env, ACTIVITY);
+        if class.is_null() {
+            return;
+        }
+        // android.app.Activity.finish()V
+        let Ok(name) = std::ffi::CString::new("finish") else { return };
+        let Ok(sig) = std::ffi::CString::new("()V") else { return };
+        let mid = get_method_id(env, class, name.as_ptr() as _, sig.as_ptr() as _);
+        if !mid.is_null() {
+            call_void_method(env, ACTIVITY, mid);
+        }
+        if let Some(exc) = (**env).ExceptionCheck {
+            if exc(env) != 0 {
+                if let Some(clear) = (**env).ExceptionClear { clear(env); }
+            }
+        }
+        if let Some(del) = (**env).DeleteLocalRef { del(env, class); }
+    }
+}
+
 /// Target frame rate cap selectable in the Android Launcher and Video Settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -381,28 +414,44 @@ pub fn is_android() -> bool {
 }
 
 /// Resolve the writable root directory for settings, logs and local saves.
+/// Priority order (first existing/writable wins):
+///   1. $LOOKING_GLASS_SETTINGS_DIR     (set by Java on every launch — canonical)
+///   2. $LOOKING_GLASS_ANDROID_STORAGE  (legacy name, same value)
+///   3. $LOOKING_GLASS_ANDROID_DIR      (older legacy name)
+///   4. Android canonical external-files dir (getExternalFilesDir-equivalent paths)
+///   5. app-internal data dir (getFilesDir equivalent)
+///   6. ./private (desktop only; never used on Android)
 pub fn storage_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("LOOKING_GLASS_SETTINGS_DIR")
-        .or_else(|| std::env::var_os("LOOKING_GLASS_ANDROID_STORAGE"))
-        .or_else(|| std::env::var_os("LOOKING_GLASS_ANDROID_DIR"))
-        .filter(|s| !s.is_empty())
-    {
-        return PathBuf::from(dir);
+    for key in [
+        "LOOKING_GLASS_SETTINGS_DIR",
+        "LOOKING_GLASS_ANDROID_STORAGE",
+        "LOOKING_GLASS_ANDROID_DIR",
+    ] {
+        if let Some(dir) = std::env::var_os(key)
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            if fs::create_dir_all(&dir).is_ok() {
+                return dir;
+            }
+        }
     }
     if cfg!(target_os = "android") {
-        for candidate in [
-            format!("/storage/emulated/0/Android/data/{PACKAGE_ID}/files"),
-            format!("/sdcard/Android/data/{PACKAGE_ID}/files"),
-            "/storage/emulated/0/LookingGlass/private".into(),
-            "/sdcard/LookingGlass/private".into(),
-            format!("/data/user/0/{PACKAGE_ID}/files"),
-            format!("/data/data/{PACKAGE_ID}/files"),
-        ] {
-            let path = PathBuf::from(candidate);
+        let package = PACKAGE_ID;
+        let candidates: [PathBuf; 6] = [
+            PathBuf::from(format!("/storage/emulated/0/Android/data/{package}/files")),
+            PathBuf::from(format!("/sdcard/Android/data/{package}/files")),
+            PathBuf::from(format!("/data/user/0/{package}/files")),
+            PathBuf::from(format!("/data/data/{package}/files")),
+            PathBuf::from("/storage/emulated/0/LookingGlass/private"),
+            PathBuf::from("/sdcard/LookingGlass/private"),
+        ];
+        for path in candidates {
             if fs::create_dir_all(&path).is_ok() {
                 return path;
             }
         }
+        // Last-resort: app's internal storage (always writable on Android).
         let fallback = std::env::temp_dir().join("looking-glass");
         let _ = fs::create_dir_all(&fallback);
         return fallback;
@@ -415,11 +464,21 @@ pub fn default_save_dir() -> PathBuf {
 }
 
 pub fn default_data_dir() -> PathBuf {
-    let fallback = std::fs::read_to_string("private/data-path.txt")
+    let root = storage_root();
+    // Prefer the remembered path written next to storage_root (set by remember_data_dir).
+    let saved = fs::read_to_string(root.join("data-path.txt"))
+        .or_else(|_| fs::read_to_string("private/data-path.txt"))
         .ok()
         .filter(|path| !path.trim().is_empty())
-        .map(|path| PathBuf::from(path.trim()))
-        .unwrap_or_else(|| PathBuf::from("alice_202106/Alice1/bin/base"));
+        .map(|path| PathBuf::from(path.trim()));
+    let fallback = saved.unwrap_or_else(|| {
+        if is_android() {
+            // On Android the canonical game-data folder is <storage>/base.
+            root.join("base")
+        } else {
+            PathBuf::from("alice_202106/Alice1/bin/base")
+        }
+    });
     resolve_data_dir(&fallback)
 }
 
@@ -485,7 +544,10 @@ fn open_ready_assets(initial: &Path, root: &Path) -> std::result::Result<Assets,
     if !missing.is_empty() {
         return Err(missing_packs_message(&missing));
     }
-    match Assets::open(&resolved) {
+    // Create <storage>/mods/ if missing and layer any pk3s there on top of base.
+    let mods_dir = root.join("mods");
+    let _ = std::fs::create_dir_all(&mods_dir);
+    match crate::assets::Assets::open_with_mods(&resolved, Some(&mods_dir)) {
         Ok(assets) => {
             remember_data_dir(root, &resolved);
             Ok(assets)
@@ -551,21 +613,22 @@ pub fn candidate_data_dirs(root: &Path) -> Vec<PathBuf> {
     dirs.push(root.join("game-data/Alice1/bin/base"));
     dirs.push(root.join("Alice1/bin/base"));
     if is_android() {
-        for path in [
-            format!("/storage/emulated/0/Android/data/{PACKAGE_ID}/files/base"),
-            format!("/sdcard/Android/data/{PACKAGE_ID}/files/base"),
-            "/storage/emulated/0/LookingGlass/base".into(),
-            "/storage/emulated/0/LookingGlass".into(),
-            "/storage/emulated/0/Alice1/bin/base".into(),
-            "/storage/emulated/0/Download/LookingGlass/base".into(),
-            "/storage/emulated/0/Download/Alice1/bin/base".into(),
-            "/sdcard/LookingGlass/base".into(),
-            "/sdcard/LookingGlass".into(),
-            "/sdcard/Alice1/bin/base".into(),
-            format!("/data/user/0/{PACKAGE_ID}/files/base"),
-            format!("/data/data/{PACKAGE_ID}/files/base"),
-        ] {
-            dirs.push(PathBuf::from(path));
+        let legacy_android: [PathBuf; 12] = [
+            PathBuf::from(format!("/storage/emulated/0/Android/data/{PACKAGE_ID}/files/base")),
+            PathBuf::from(format!("/sdcard/Android/data/{PACKAGE_ID}/files/base")),
+            PathBuf::from("/storage/emulated/0/LookingGlass/base"),
+            PathBuf::from("/storage/emulated/0/LookingGlass"),
+            PathBuf::from("/storage/emulated/0/Alice1/bin/base"),
+            PathBuf::from("/storage/emulated/0/Download/LookingGlass/base"),
+            PathBuf::from("/storage/emulated/0/Download/Alice1/bin/base"),
+            PathBuf::from("/sdcard/LookingGlass/base"),
+            PathBuf::from("/sdcard/LookingGlass"),
+            PathBuf::from("/sdcard/Alice1/bin/base"),
+            PathBuf::from(format!("/data/user/0/{PACKAGE_ID}/files/base")),
+            PathBuf::from(format!("/data/data/{PACKAGE_ID}/files/base")),
+        ];
+        for path in legacy_android {
+            dirs.push(path);
         }
     }
     dirs.push(PathBuf::from("alice_202106/Alice1/bin/base"));
@@ -616,8 +679,19 @@ pub fn remember_data_dir(root: &Path, data_dir: &Path) {
 pub fn prepare_directories(root: &Path) {
     let base = root.join("base");
     let saves = root.join("saves");
+    let mods = root.join("mods");
     let _ = fs::create_dir_all(&base);
     let _ = fs::create_dir_all(&saves);
+    let _ = fs::create_dir_all(&mods);
+
+    // Best-effort migration of saves / pk3s / config files from legacy storage
+    // locations into the canonical root. Runs every launch but never overwrites
+    // existing files and never deletes anything from the source — it only fills
+    // in what is missing, so it is safe across upgrades.
+    if is_android() {
+        migrate_legacy_user_data(root);
+    }
+
     let readme = base.join("PLACE_PK3_FILES_HERE.txt");
     if !readme.exists() {
         let _ = fs::write(
@@ -631,6 +705,117 @@ pub fn prepare_directories(root: &Path) {
              - pak4_english.pk3\n\
              - pak5_mod.pk3\n",
         );
+    }
+}
+
+/// Copy any saves/, *.pk3 and top-level config files from legacy locations into
+/// `root`. Safe to call repeatedly.
+fn migrate_legacy_user_data(root: &Path) {
+    let canon_base = root.join("base");
+    let canon_saves = root.join("saves");
+    let _ = fs::create_dir_all(&canon_base);
+    let _ = fs::create_dir_all(&canon_saves);
+
+    let legacy_roots: &[&str] = &[
+        "/storage/emulated/0/LookingGlass/private",
+        "/sdcard/LookingGlass/private",
+        "/storage/emulated/0/LookingGlass",
+        "/sdcard/LookingGlass",
+    ];
+    let package = PACKAGE_ID;
+    let internal_paths = [
+        format!("/data/user/0/{package}/files"),
+        format!("/data/data/{package}/files"),
+    ];
+
+    let mut all_paths: Vec<PathBuf> = legacy_roots.iter().map(PathBuf::from).collect();
+    for p in internal_paths {
+        let pb = PathBuf::from(p);
+        if pb != root {
+            all_paths.push(pb);
+        }
+    }
+    // The Rust-side old fallback was `./private` when CWD was the app's home.
+    let cwd_private = std::env::current_dir().ok().map(|c| c.join("private"));
+    if let Some(p) = cwd_private {
+        if p != root {
+            all_paths.push(p);
+        }
+    }
+
+    for legacy in all_paths {
+        if !legacy.is_dir() {
+            continue;
+        }
+        // PK3 candidates: <legacy>/, <legacy>/base/, <legacy>/Alice1/bin/base/
+        for sub in ["", "base", "Alice1/bin/base"] {
+            let dir = if sub.is_empty() {
+                legacy.clone()
+            } else {
+                legacy.join(sub)
+            };
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if !p.is_file() {
+                        continue;
+                    }
+                    let name_lower = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_ascii_lowercase())
+                        .unwrap_or_default();
+                    if name_lower.ends_with(".pk3") {
+                        let dest = canon_base.join(p.file_name().unwrap());
+                        if !dest.exists() {
+                            let _ = fs::copy(&p, &dest);
+                        }
+                    }
+                }
+            }
+        }
+        // Migrate saves/ tree
+        let legacy_saves = legacy.join("saves");
+        if legacy_saves.is_dir() {
+            copy_dir_missing(&legacy_saves, &canon_saves);
+        }
+        // Top-level config files
+        if let Ok(entries) = fs::read_dir(&legacy) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_file() {
+                    continue;
+                }
+                let name = match p.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                if name == "data-path.txt"
+                    || name.ends_with(".cfg")
+                    || name.ends_with(".json")
+                    || name == "crash.log"
+                {
+                    let dest = root.join(&name);
+                    if !dest.exists() {
+                        let _ = fs::copy(&p, &dest);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn copy_dir_missing(src: &Path, dst: &Path) {
+    let _ = fs::create_dir_all(dst);
+    let Ok(entries) = fs::read_dir(src) else { return };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let out = dst.join(p.file_name().unwrap());
+        if p.is_dir() {
+            copy_dir_missing(&p, &out);
+        } else if p.is_file() && !out.exists() {
+            let _ = fs::copy(&p, &out);
+        }
     }
 }
 
@@ -720,9 +905,22 @@ pub fn show_credits_dialog() -> bool {
     call_activity_void("showCreditsDialog")
 }
 
-/// Ask the activity to drop the render buffer from the sharp launcher size to the game's
-/// 540p size (`MainActivity.enterGameRenderMode()`). Returns `true` when the call was made.
+/// Ask the activity to drop the render buffer from the sharp launcher size to the
+/// game buffer (`MainActivity.enterGameRenderMode()`). The short side of the game
+/// buffer is preset-aware and handed to the activity through
+/// `render_short_side.txt` so weaker GPUs can render fewer pixels.
+/// Returns `true` when the call was made.
 pub fn enter_game_render_mode() -> bool {
+    let short_side = match active_preset().effective() {
+        PerformancePreset::Balanced => 480,
+        PerformancePreset::Performance => 400,
+        PerformancePreset::Quality | PerformancePreset::Auto => 540,
+    };
+    if is_android() {
+        let root = storage_root();
+        let _ = std::fs::create_dir_all(&root);
+        let _ = std::fs::write(root.join("render_short_side.txt"), short_side.to_string());
+    }
     call_activity_void("enterGameRenderMode")
 }
 
@@ -1004,6 +1202,10 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
     let mut frame = 0u32;
     let mut data_ready = false;
 
+    // Seed the touch-id tracker with any fingers already on the screen so the
+    // first frame of the launcher doesn't treat a held finger as a "fresh tap".
+    crate::touch::seed_pointer_state();
+
     loop {
         if is_quit_requested() {
             anyhow::bail!("Setup cancelled before game data was mounted");
@@ -1073,13 +1275,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
             2. * s,
             Color::from_hex(0x8c6d46),
         );
-        let pointer = touches()
-            .iter()
-            .find(|t| t.phase == TouchPhase::Started)
-            .map(|t| t.position)
-            .or_else(|| {
-                is_mouse_button_pressed(MouseButton::Left).then(|| Vec2::from(mouse_position()))
-            });
+        let (pointer_pos, pointer_pressed, _pointer_down) = crate::touch::pointer_state();
 
         let x = panel.x + 26. * s;
         let mut y = panel.y + 84. * s;
@@ -1127,13 +1323,13 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 WHITE,
             );
         }
-        if pointer.is_some_and(|p| tg_btn.contains(p)) {
+        if pointer_pressed && tg_btn.contains(pointer_pos) {
             let _ = open_telegram_link();
             status = "Opening https://t.me/player1444ports ...".into();
-        } else if pointer.is_some_and(|p| upd_btn.contains(p)) {
+        } else if pointer_pressed && upd_btn.contains(pointer_pos) {
             let _ = check_for_updates();
             status = "Checking for updates on GitHub...".into();
-        } else if pointer.is_some_and(|p| info_btn.contains(p)) {
+        } else if pointer_pressed && info_btn.contains(pointer_pos) {
             let _ = show_credits_dialog();
         }
 
@@ -1205,7 +1401,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     btn.w - 30. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
-                if pointer.is_some_and(|p| btn.contains(p)) {
+                if pointer_pressed && btn.contains(pointer_pos) {
                     prefs.fps_limit = mode;
                     set_active_fps_limit(mode);
                     let _ = prefs.save();
@@ -1249,7 +1445,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     btn.w - 24. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
-                if pointer.is_some_and(|p| btn.contains(p)) {
+                if pointer_pressed && btn.contains(pointer_pos) {
                     prefs.performance_preset = preset;
                     set_active_preset(preset);
                     let _ = prefs.save();
@@ -1303,7 +1499,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     btn.w - 20. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
-                if pointer.is_some_and(|p| btn.contains(p)) {
+                if pointer_pressed && btn.contains(pointer_pos) {
                     prefs.touch_mode = mode;
                     let _ = prefs.save();
                     status = if mode == crate::touch::TouchMode::Off {
@@ -1337,14 +1533,14 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 edit_hud_btn.w - 24. * s,
                 WHITE,
             );
-            if pointer.is_some_and(|p| edit_hud_btn.contains(p)) {
+            if pointer_pressed && edit_hud_btn.contains(pointer_pos) {
                 editing_touch = true;
                 next_frame().await;
                 continue;
             }
 
-            let row1_y = panel.bottom() - 128. * s;
-            let row2_y = panel.bottom() - 66. * s;
+            let row1_y = panel.bottom() - 130. * s;
+            let row2_y = panel.bottom() - 68. * s;
             let folder_btn = Rect::new(x, row1_y, 446. * s, 50. * s);
             let file_btn = Rect::new(x + 462. * s, row1_y, 446. * s, 50. * s);
             let scan_btn = Rect::new(x, row2_y, 908. * s, 50. * s);
@@ -1377,14 +1573,14 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 );
             }
 
-            if pointer.is_some_and(|p| folder_btn.contains(p)) {
+            if pointer_pressed && folder_btn.contains(pointer_pos) {
                 if open_system_folder_picker() {
                     status = "Opening Android system folder chooser...".into();
                 } else {
                     browsing = true;
                     browse_scroll = 0;
                 }
-            } else if pointer.is_some_and(|p| file_btn.contains(p)) {
+            } else if pointer_pressed && file_btn.contains(pointer_pos) {
                 if open_system_file_picker() {
                     status = "Opening Android system file chooser (.pk3 / .zip)...".into();
                 } else {
@@ -1399,7 +1595,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
             let trigger_scan = is_key_pressed(KeyCode::Enter)
                 || is_key_pressed(KeyCode::Space)
                 || pad_start
-                || pointer.is_some_and(|p| scan_btn.contains(p));
+                || pointer_pressed && scan_btn.contains(pointer_pos);
             let trigger_quit = is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Back);
             if trigger_quit {
                 macroquad::miniquad::window::request_quit();
@@ -1470,7 +1666,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     row_rect.w - 28. * s,
                     WHITE,
                 );
-                if pointer.is_some_and(|p| row_rect.contains(p)) {
+                if pointer_pressed && row_rect.contains(pointer_pos) {
                     browse_dir = dir_path.clone();
                     browse_scroll = 0;
                 }
@@ -1509,18 +1705,18 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 );
             }
 
-            if pointer.is_some_and(|p| up_btn.contains(p)) {
+            if pointer_pressed && up_btn.contains(pointer_pos) {
                 if let Some(parent) = browse_dir.parent() {
                     browse_dir = parent.to_path_buf();
                     browse_scroll = 0;
                 }
-            } else if pointer.is_some_and(|p| prev_btn.contains(p)) {
+            } else if pointer_pressed && prev_btn.contains(pointer_pos) {
                 browse_scroll = browse_scroll.saturating_sub(max_rows);
-            } else if pointer.is_some_and(|p| next_btn.contains(p)) {
+            } else if pointer_pressed && next_btn.contains(pointer_pos) {
                 if browse_scroll + max_rows < subdirs.len() {
                     browse_scroll += max_rows;
                 }
-            } else if pointer.is_some_and(|p| copy_btn.contains(p)) {
+            } else if pointer_pressed && copy_btn.contains(pointer_pos) {
                 let dest_base = root.join("base");
                 match import_game_dir(&browse_dir, &dest_base) {
                     Ok(count) => match open_ready_assets(&initial, &root) {
@@ -1536,7 +1732,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 }
             } else if is_key_pressed(KeyCode::Escape)
                 || is_key_pressed(KeyCode::Back)
-                || pointer.is_some_and(|p| back_btn.contains(p))
+                || pointer_pressed && back_btn.contains(pointer_pos)
             {
                 browsing = false;
             }
