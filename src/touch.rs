@@ -54,14 +54,37 @@ pub fn pointer_state() -> (Vec2, bool, bool) {
         !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled)
             && !is_draining(t.id)
     });
-    if let Some(t) = live.next() {
-        // "pressed" edge = a genuinely new Started finger that is not draining.
-        // A lingering Stationary/Moved finger from before the modal opened is
-        // excluded even if its phase was re-sent as Started by Android.
-        let started = ts
+    let pressed = if let Some(first) = live.next() {
+        // Detect a "new press" by touch-id edge rather than by phase. Android
+        // does not guarantee that a tap's first event arrives as Started — on
+        // slow/overloaded devices the frame in which Started would have fired
+        // is often missed and the finger appears as Stationary on the first
+        // frame we sample. Triggering on any *new* (previously unseen) id makes
+        // taps register every frame a finger appears, regardless of phase.
+        let prev = PREV_POINTER_IDS.with(|s| s.borrow().clone());
+        let any_new = !prev.contains(&first.id)
+            || ts.iter()
+                .filter(|t| {
+                    !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled)
+                        && !is_draining(t.id)
+                })
+                .any(|t| !prev.contains(&t.id));
+        let now: BTreeSet<u64> = ts
             .iter()
-            .any(|t| t.phase == TouchPhase::Started && !is_draining(t.id));
-        (t.position, started, true)
+            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
+            .map(|t| t.id)
+            .collect();
+        PREV_POINTER_IDS.with(|s| *s.borrow_mut() = now);
+        any_new
+    } else {
+        PREV_POINTER_IDS.with(|s| s.borrow_mut().clear());
+        false
+    };
+    if let Some(t) = ts
+        .iter()
+        .find(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled) && !is_draining(t.id))
+    {
+        (t.position, pressed, true)
     } else {
         (
             Vec2::from(mouse_position()),
@@ -73,6 +96,7 @@ pub fn pointer_state() -> (Vec2, bool, bool) {
 
 thread_local! {
     static DRAINING_IDS: RefCell<BTreeSet<u64>> = RefCell::new(BTreeSet::new());
+    static PREV_POINTER_IDS: RefCell<BTreeSet<u64>> = RefCell::new(BTreeSet::new());
 }
 
 fn is_draining(id: u64) -> bool {
@@ -99,10 +123,35 @@ pub fn drain_active_touches() {
             .collect();
         s.retain(|id| live.contains(id));
     });
+    // Also seed PREV_POINTER_IDS with the current live set: a finger that was
+    // already held before entering this screen should NOT be treated as a new
+    // press on the first frame it's sampled.
+    PREV_POINTER_IDS.with(|s| {
+        let now: BTreeSet<u64> = ts
+            .iter()
+            .filter(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
+            .map(|t| t.id)
+            .collect();
+        *s.borrow_mut() = now;
+    });
 }
 
-/// Clear all drain state. Called implicitly when the drained fingers lift.
+/// Clear all drain state. Called implicitly when the drained fingers lift,
+/// or explicitly when returning to a state where leftover fingers should be
+/// treated as fresh (e.g. entering gameplay from the launcher).
 pub fn clear_drain() {
+    DRAINING_IDS.with(|s| s.borrow_mut().clear());
+    PREV_POINTER_IDS.with(|s| s.borrow_mut().clear());
+}
+
+/// Seed the per-frame touch-id tracker with the fingers currently on screen.
+/// Used when entering a fresh screen (e.g. the launcher) so that already-held
+/// fingers aren't falsely reported as a new "press" on the very first frame.
+pub fn seed_pointer_state() {
+    drain_active_touches();
+    // drain_active_touches both drains AND seeds PREV_POINTER_IDS — but we
+    // actually don't want to DRAIN those fingers, only seed the tracker.
+    // So drop the draining set it populated.
     DRAINING_IDS.with(|s| s.borrow_mut().clear());
 }
 
