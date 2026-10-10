@@ -221,6 +221,33 @@ pub extern "C" fn Java_com_lookingglass_alice_MainActivity_nativeOnGamepad(
     ANDROID_PAD_AXES_R.store(rx16 | (ry16 << 16), Relaxed);
 }
 
+/// JNI entry point called by MainActivity.importModsFromIntent after copying a
+/// picked archive to a temp file. Extracts any .pk3 files found inside (or
+/// nested inside .zip/.7z) into `dest_dir` and returns the number written.
+#[no_mangle]
+pub extern "C" fn Java_com_lookingglass_alice_MainActivity_nativeImportModArchive(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    archive_utf8: *const std::ffi::c_char,
+    dest_utf8: *const std::ffi::c_char,
+) -> i32 {
+    let archive = match unsafe { std::ffi::CStr::from_ptr(archive_utf8) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let dest = match unsafe { std::ffi::CStr::from_ptr(dest_utf8) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    match crate::assets::import_archive(std::path::Path::new(archive), std::path::Path::new(dest)) {
+        Ok(n) => n as i32,
+        Err(e) => {
+            eprintln!("Mod import failed for {archive}: {e:#}");
+            -1
+        }
+    }
+}
+
 pub fn read_gamepad() -> Option<(u16, u8, u8, i16, i16, i16, i16)> {
     use std::sync::atomic::Ordering::Relaxed;
     if !ANDROID_PAD_CONNECTED.load(Relaxed) {
@@ -544,7 +571,10 @@ fn open_ready_assets(initial: &Path, root: &Path) -> std::result::Result<Assets,
     if !missing.is_empty() {
         return Err(missing_packs_message(&missing));
     }
-    match Assets::open(&resolved) {
+    // Create <storage>/mods/ if missing and layer any pk3s there on top of base.
+    let mods_dir = root.join("mods");
+    let _ = std::fs::create_dir_all(&mods_dir);
+    match crate::assets::Assets::open_with_mods(&resolved, Some(&mods_dir)) {
         Ok(assets) => {
             remember_data_dir(root, &resolved);
             Ok(assets)
@@ -676,8 +706,10 @@ pub fn remember_data_dir(root: &Path, data_dir: &Path) {
 pub fn prepare_directories(root: &Path) {
     let base = root.join("base");
     let saves = root.join("saves");
+    let mods = root.join("mods");
     let _ = fs::create_dir_all(&base);
     let _ = fs::create_dir_all(&saves);
+    let _ = fs::create_dir_all(&mods);
 
     // Best-effort migration of saves / pk3s / config files from legacy storage
     // locations into the canonical root. Runs every launch but never overwrites
@@ -883,6 +915,13 @@ pub fn open_system_folder_picker() -> bool {
 /// allowing the user to select `.pk3` files or a `.zip` archive to copy into `<storage>/base/`.
 pub fn open_system_file_picker() -> bool {
     call_activity_void("openFilePicker")
+}
+
+/// Trigger Android's native system file chooser for mod archives. Selected
+/// .pk3 / .zip / .7z files are extracted / copied into `<storage>/mods/`
+/// and automatically loaded on top of the base packs.
+pub fn open_mod_picker() -> bool {
+    call_activity_void("openModPicker")
 }
 
 /// Open Player1444's Telegram channel (`https://t.me/player1444ports`).
@@ -1523,20 +1562,34 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 continue;
             }
 
-            let row1_y = panel.bottom() - 128. * s;
-            let row2_y = panel.bottom() - 66. * s;
+            let row1_y = panel.bottom() - 190. * s;
+            let row2_y = panel.bottom() - 128. * s;
+            let row3_y = panel.bottom() - 66. * s;
             let folder_btn = Rect::new(x, row1_y, 446. * s, 50. * s);
             let file_btn = Rect::new(x + 462. * s, row1_y, 446. * s, 50. * s);
-            let scan_btn = Rect::new(x, row2_y, 908. * s, 50. * s);
+            let mod_btn = Rect::new(x, row2_y, 446. * s, 50. * s);
+            let scan_btn = Rect::new(x + 462. * s, row2_y, 446. * s, 50. * s);
+            let info_btn_row = Rect::new(x, row3_y, 908. * s, 50. * s);
+
+            let mod_count = std::fs::read_dir(storage_root().join("mods"))
+                .map(|r| r.flatten().filter(|e| e.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("pk3"))).count())
+                .unwrap_or(0);
+            let mod_label = if mod_count == 0 {
+                "Install Mod (.pk3 / .zip / .7z)".to_string()
+            } else {
+                format!("Mods: {mod_count} installed (.pk3/.zip/.7z)")
+            };
 
             for (rect, label, fill) in [
                 (folder_btn, "Choose Game Folder", Color::from_hex(0x6e352c)),
                 (file_btn, "Select PK3 / ZIP", Color::from_hex(0x4a354f)),
+                (mod_btn, mod_label.as_str(), Color::from_hex(0x3d2b56)),
                 (
                     scan_btn,
                     "START GAME",
                     Color::from_hex(if data_ready { 0x276e36 } else { 0x5b2c24 }),
                 ),
+                (info_btn_row, "Choose mod .7z/.zip/.pk3 (e.g. Dreamland_v1.3.4.7z)", Color::from_hex(0x2b3d56)),
             ] {
                 draw_rectangle(rect.x, rect.y, rect.w, rect.h, fill);
                 draw_rectangle_lines(
@@ -1570,6 +1623,12 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 } else {
                     browsing = true;
                     browse_scroll = 0;
+                }
+            } else if pointer.is_some_and(|p| mod_btn.contains(p) || info_btn_row.contains(p)) {
+                if open_mod_picker() {
+                    status = "Opening Android file chooser for mods (.pk3 / .zip / .7z)...".into();
+                } else {
+                    status = "Mod picker unavailable on this build.".into();
                 }
             }
 
