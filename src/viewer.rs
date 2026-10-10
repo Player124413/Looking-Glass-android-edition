@@ -944,7 +944,6 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         });
         input.update(&preferences, window_focused());
         let overlay_before = menu || inventory_menu || console.open || paused;
-        let context_before = (menu, inventory_menu, console.open, paused);
         if input.disconnected {
             paused = true;
             hud.announce("Controller disconnected / reconnect or use keyboard and mouse");

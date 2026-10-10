@@ -1386,7 +1386,7 @@ impl Menu {
             audio.update(0., listener, yaw, true, true);
             let canvas = Canvas::new(screen_width(), screen_height());
             let (mouse, pointer_pressed_raw, pointer_down_raw) = crate::touch::pointer_state();
-            let any_touch_down = crate::touch::touches().iter().any(|t| {
+            let any_touch_down = touches().iter().any(|t| {
                 matches!(t.phase, TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary)
             });
             // End grace when the countdown runs out OR the opening finger
