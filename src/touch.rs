@@ -703,21 +703,35 @@ impl TouchState {
         self.pressed = 0;
     }
 
-    fn assign_new_touch(&mut self, t: &TouchPoint, layout: &Layout, screen: Vec2) {
+    fn assign_new_touch(
+        &mut self,
+        t: &TouchPoint,
+        layout: &Layout,
+        screen: Vec2,
+        can_press_buttons: bool,
+    ) {
         // Try to claim this touch as a button / stick / look finger.
         // Order: button hit first, then stick zone, then look (camera drag).
-        if let Some(button) = layout.hit_button(t.position) {
-            if button == TouchButton::RunLock {
-                // Run is a pure toggle: each press flips the lock. The finger does NOT
-                // hold it down — sprint only stays on while `sprint_locked` is true.
-                self.sprint_locked = !self.sprint_locked;
+        // When `can_press_buttons` is false (i.e. we are picking up an
+        // orphaned Moved/Stationary event after a suppress/menu boundary),
+        // skip button claims. A real button press always arrives as Started
+        // (or a fast Ended tap) in the same batch — re-binding a lingering
+        // held finger as a new button press would auto-close menus and
+        // re-fire HUD actions the user never re-tapped.
+        if can_press_buttons {
+            if let Some(button) = layout.hit_button(t.position) {
+                if button == TouchButton::RunLock {
+                    // Run is a pure toggle: each press flips the lock. The finger does NOT
+                    // hold it down — sprint only stays on while `sprint_locked` is true.
+                    self.sprint_locked = !self.sprint_locked;
+                }
+                self.button_touches.insert(t.id, button);
+                if button.allows_look_drag() && self.look_touch.is_none() {
+                    self.look_touch = Some(t.id);
+                    self.look_prev = t.position;
+                }
+                return;
             }
-            self.button_touches.insert(t.id, button);
-            if button.allows_look_drag() && self.look_touch.is_none() {
-                self.look_touch = Some(t.id);
-                self.look_prev = t.position;
-            }
-            return;
         }
         if self.stick_touch.is_none() && layout.in_stick_zone(t.position) {
             self.stick_touch = Some(t.id);
@@ -801,15 +815,20 @@ impl TouchState {
                 || self.button_touches.contains_key(&t.id);
             match t.phase {
                 TouchPhase::Started => {
-                    self.assign_new_touch(t, &layout, screen);
+                    // A genuine new finger — can press any button/stick/look.
+                    self.assign_new_touch(t, &layout, screen, true);
                 }
                 TouchPhase::Moved | TouchPhase::Stationary => {
                     if !known {
                         // Orphaned motion: Android/miniquad can skip the Started event
                         // (e.g. when multiple fingers land/change within the same frame,
-                        // or during a brief app/input hiccup). Claim it on the fly so
-                        // controls stay responsive without forcing the user to re-tap.
-                        self.assign_new_touch(t, &layout, screen);
+                        // or during a brief app/input hiccup). Claim stick/look drags on
+                        // the fly so camera/joystick stay responsive, but DO NOT bind
+                        // this to a HUD button — a real button press always arrives as
+                        // a Started (or fast Ended tap) event; otherwise a still-held
+                        // finger crossing the suppress/menu boundary would re-fire the
+                        // Menu button and instantly close the menu we just opened.
+                        self.assign_new_touch(t, &layout, screen, false);
                     }
                     if self.stick_touch == Some(t.id) {
                         let offset = t.position - self.stick_origin;
@@ -838,8 +857,11 @@ impl TouchState {
                 TouchPhase::Ended | TouchPhase::Cancelled => {
                     if !known {
                         // A tap whose Started was never seen (dropped by OS/driver)
-                        // — claim it so a pressed edge fires, then release below.
-                        self.assign_new_touch(t, &layout, screen);
+                        // — this can still be a valid quick tap on a button, so allow
+                        // button claims here so the pressed edge fires before we
+                        // release it below. Moved/Stationary orphans (above) stay
+                        // non-button so lingering held fingers don't re-fire HUD taps.
+                        self.assign_new_touch(t, &layout, screen, true);
                     }
                     if self.stick_touch == Some(t.id) {
                         self.stick_touch = None;

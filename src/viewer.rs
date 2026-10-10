@@ -969,9 +969,14 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             mouse_look.release();
             clock.pause();
             help_until = 0.;
-            // Consume Escape before entering the separate modal frame loop. No
-            // physics, story, enemies, power-up timers or world clocks run there.
+            // Consume Escape / the opening MENU tap before entering the separate
+            // modal frame loop. No physics, story, enemies, power-up timers or
+            // world clocks run there. Suppress twice across the await so any
+            // touch phase Android/miniquad delivers for the still-held opening
+            // finger (Stationary / Moved / re-Started) is drained and cannot
+            // re-fire Menu or land on a menu button inside the modal loop.
             next_frame().await;
+            input.suppress();
             let action = escape_menu
                 .run(&mut preferences, &mut audio, &store, pos, yaw, &mut input)
                 .await;
