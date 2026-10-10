@@ -796,11 +796,11 @@ impl TouchState {
         }
         if self.stick_touch.is_none() && layout.in_stick_zone(t.position) {
             self.stick_touch = Some(t.id);
-            let margin = layout.stick_radius + 16. * layout.scale;
-            self.stick_origin = vec2(
-                t.position.x.clamp(margin, screen.x - margin),
-                t.position.y.clamp(margin, screen.y - margin),
-            );
+            // Fixed virtual stick: the knob's origin stays at the button's
+            // configured position regardless of where exactly in the zone the
+            // finger first lands. The finger only controls the offset from
+            // that fixed center (with deadzone + clamping to stick_radius).
+            self.stick_origin = layout.stick_default;
             self.stick_pos = self.stick_origin;
             self.move_axis = Vec2::ZERO;
             return;
