@@ -232,7 +232,7 @@ mod tests {
             z.finish()?;
         }
         let mut a = Assets::open(&dir)?;
-        assert_eq!(a.read("TEXTURES\\\\test.ftx")?, b"new");
+        assert_eq!(a.read("TEXTURES\\test.ftx")?, b"new");
         assert!(a.read("missing").is_err());
         drop(a);
         for name in ["pak0.pk3", "pak5.pk3"] {
