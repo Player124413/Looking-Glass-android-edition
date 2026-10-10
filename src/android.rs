@@ -381,28 +381,44 @@ pub fn is_android() -> bool {
 }
 
 /// Resolve the writable root directory for settings, logs and local saves.
+/// Priority order (first existing/writable wins):
+///   1. $LOOKING_GLASS_SETTINGS_DIR     (set by Java on every launch — canonical)
+///   2. $LOOKING_GLASS_ANDROID_STORAGE  (legacy name, same value)
+///   3. $LOOKING_GLASS_ANDROID_DIR      (older legacy name)
+///   4. Android canonical external-files dir (getExternalFilesDir-equivalent paths)
+///   5. app-internal data dir (getFilesDir equivalent)
+///   6. ./private (desktop only; never used on Android)
 pub fn storage_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("LOOKING_GLASS_SETTINGS_DIR")
-        .or_else(|| std::env::var_os("LOOKING_GLASS_ANDROID_STORAGE"))
-        .or_else(|| std::env::var_os("LOOKING_GLASS_ANDROID_DIR"))
-        .filter(|s| !s.is_empty())
-    {
-        return PathBuf::from(dir);
+    for key in [
+        "LOOKING_GLASS_SETTINGS_DIR",
+        "LOOKING_GLASS_ANDROID_STORAGE",
+        "LOOKING_GLASS_ANDROID_DIR",
+    ] {
+        if let Some(dir) = std::env::var_os(key)
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            if fs::create_dir_all(&dir).is_ok() {
+                return dir;
+            }
+        }
     }
     if cfg!(target_os = "android") {
-        for candidate in [
-            format!("/storage/emulated/0/Android/data/{PACKAGE_ID}/files"),
-            format!("/sdcard/Android/data/{PACKAGE_ID}/files"),
-            "/storage/emulated/0/LookingGlass/private".into(),
-            "/sdcard/LookingGlass/private".into(),
-            format!("/data/user/0/{PACKAGE_ID}/files"),
-            format!("/data/data/{PACKAGE_ID}/files"),
-        ] {
-            let path = PathBuf::from(candidate);
+        let package = PACKAGE_ID;
+        let candidates: [PathBuf; 6] = [
+            PathBuf::from(format!("/storage/emulated/0/Android/data/{package}/files")),
+            PathBuf::from(format!("/sdcard/Android/data/{package}/files")),
+            PathBuf::from(format!("/data/user/0/{package}/files")),
+            PathBuf::from(format!("/data/data/{package}/files")),
+            PathBuf::from("/storage/emulated/0/LookingGlass/private"),
+            PathBuf::from("/sdcard/LookingGlass/private"),
+        ];
+        for path in candidates {
             if fs::create_dir_all(&path).is_ok() {
                 return path;
             }
         }
+        // Last-resort: app's internal storage (always writable on Android).
         let fallback = std::env::temp_dir().join("looking-glass");
         let _ = fs::create_dir_all(&fallback);
         return fallback;
@@ -415,11 +431,21 @@ pub fn default_save_dir() -> PathBuf {
 }
 
 pub fn default_data_dir() -> PathBuf {
-    let fallback = std::fs::read_to_string("private/data-path.txt")
+    let root = storage_root();
+    // Prefer the remembered path written next to storage_root (set by remember_data_dir).
+    let saved = fs::read_to_string(root.join("data-path.txt"))
+        .or_else(|_| fs::read_to_string("private/data-path.txt"))
         .ok()
         .filter(|path| !path.trim().is_empty())
-        .map(|path| PathBuf::from(path.trim()))
-        .unwrap_or_else(|| PathBuf::from("alice_202106/Alice1/bin/base"));
+        .map(|path| PathBuf::from(path.trim()));
+    let fallback = saved.unwrap_or_else(|| {
+        if is_android() {
+            // On Android the canonical game-data folder is <storage>/base.
+            root.join("base")
+        } else {
+            PathBuf::from("alice_202106/Alice1/bin/base")
+        }
+    });
     resolve_data_dir(&fallback)
 }
 
@@ -551,21 +577,22 @@ pub fn candidate_data_dirs(root: &Path) -> Vec<PathBuf> {
     dirs.push(root.join("game-data/Alice1/bin/base"));
     dirs.push(root.join("Alice1/bin/base"));
     if is_android() {
-        for path in [
-            format!("/storage/emulated/0/Android/data/{PACKAGE_ID}/files/base"),
-            format!("/sdcard/Android/data/{PACKAGE_ID}/files/base"),
-            "/storage/emulated/0/LookingGlass/base".into(),
-            "/storage/emulated/0/LookingGlass".into(),
-            "/storage/emulated/0/Alice1/bin/base".into(),
-            "/storage/emulated/0/Download/LookingGlass/base".into(),
-            "/storage/emulated/0/Download/Alice1/bin/base".into(),
-            "/sdcard/LookingGlass/base".into(),
-            "/sdcard/LookingGlass".into(),
-            "/sdcard/Alice1/bin/base".into(),
-            format!("/data/user/0/{PACKAGE_ID}/files/base"),
-            format!("/data/data/{PACKAGE_ID}/files/base"),
-        ] {
-            dirs.push(PathBuf::from(path));
+        let legacy_android: [PathBuf; 12] = [
+            PathBuf::from(format!("/storage/emulated/0/Android/data/{PACKAGE_ID}/files/base")),
+            PathBuf::from(format!("/sdcard/Android/data/{PACKAGE_ID}/files/base")),
+            PathBuf::from("/storage/emulated/0/LookingGlass/base"),
+            PathBuf::from("/storage/emulated/0/LookingGlass"),
+            PathBuf::from("/storage/emulated/0/Alice1/bin/base"),
+            PathBuf::from("/storage/emulated/0/Download/LookingGlass/base"),
+            PathBuf::from("/storage/emulated/0/Download/Alice1/bin/base"),
+            PathBuf::from("/sdcard/LookingGlass/base"),
+            PathBuf::from("/sdcard/LookingGlass"),
+            PathBuf::from("/sdcard/Alice1/bin/base"),
+            PathBuf::from(format!("/data/user/0/{PACKAGE_ID}/files/base")),
+            PathBuf::from(format!("/data/data/{PACKAGE_ID}/files/base")),
+        ];
+        for path in legacy_android {
+            dirs.push(path);
         }
     }
     dirs.push(PathBuf::from("alice_202106/Alice1/bin/base"));
@@ -618,6 +645,15 @@ pub fn prepare_directories(root: &Path) {
     let saves = root.join("saves");
     let _ = fs::create_dir_all(&base);
     let _ = fs::create_dir_all(&saves);
+
+    // Best-effort migration of saves / pk3s / config files from legacy storage
+    // locations into the canonical root. Runs every launch but never overwrites
+    // existing files and never deletes anything from the source — it only fills
+    // in what is missing, so it is safe across upgrades.
+    if is_android() {
+        migrate_legacy_user_data(root);
+    }
+
     let readme = base.join("PLACE_PK3_FILES_HERE.txt");
     if !readme.exists() {
         let _ = fs::write(
@@ -631,6 +667,117 @@ pub fn prepare_directories(root: &Path) {
              - pak4_english.pk3\n\
              - pak5_mod.pk3\n",
         );
+    }
+}
+
+/// Copy any saves/, *.pk3 and top-level config files from legacy locations into
+/// `root`. Safe to call repeatedly.
+fn migrate_legacy_user_data(root: &Path) {
+    let canon_base = root.join("base");
+    let canon_saves = root.join("saves");
+    let _ = fs::create_dir_all(&canon_base);
+    let _ = fs::create_dir_all(&canon_saves);
+
+    let legacy_roots: &[&str] = &[
+        "/storage/emulated/0/LookingGlass/private",
+        "/sdcard/LookingGlass/private",
+        "/storage/emulated/0/LookingGlass",
+        "/sdcard/LookingGlass",
+    ];
+    let package = PACKAGE_ID;
+    let internal_paths = [
+        format!("/data/user/0/{package}/files"),
+        format!("/data/data/{package}/files"),
+    ];
+
+    let mut all_paths: Vec<PathBuf> = legacy_roots.iter().map(PathBuf::from).collect();
+    for p in internal_paths {
+        let pb = PathBuf::from(p);
+        if pb != root {
+            all_paths.push(pb);
+        }
+    }
+    // The Rust-side old fallback was `./private` when CWD was the app's home.
+    let cwd_private = std::env::current_dir().ok().map(|c| c.join("private"));
+    if let Some(p) = cwd_private {
+        if p != root {
+            all_paths.push(p);
+        }
+    }
+
+    for legacy in all_paths {
+        if !legacy.is_dir() {
+            continue;
+        }
+        // PK3 candidates: <legacy>/, <legacy>/base/, <legacy>/Alice1/bin/base/
+        for sub in ["", "base", "Alice1/bin/base"] {
+            let dir = if sub.is_empty() {
+                legacy.clone()
+            } else {
+                legacy.join(sub)
+            };
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if !p.is_file() {
+                        continue;
+                    }
+                    let name_lower = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_ascii_lowercase())
+                        .unwrap_or_default();
+                    if name_lower.ends_with(".pk3") {
+                        let dest = canon_base.join(p.file_name().unwrap());
+                        if !dest.exists() {
+                            let _ = fs::copy(&p, &dest);
+                        }
+                    }
+                }
+            }
+        }
+        // Migrate saves/ tree
+        let legacy_saves = legacy.join("saves");
+        if legacy_saves.is_dir() {
+            copy_dir_missing(&legacy_saves, &canon_saves);
+        }
+        // Top-level config files
+        if let Ok(entries) = fs::read_dir(&legacy) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_file() {
+                    continue;
+                }
+                let name = match p.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                if name == "data-path.txt"
+                    || name.ends_with(".cfg")
+                    || name.ends_with(".json")
+                    || name == "crash.log"
+                {
+                    let dest = root.join(&name);
+                    if !dest.exists() {
+                        let _ = fs::copy(&p, &dest);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn copy_dir_missing(src: &Path, dst: &Path) {
+    let _ = fs::create_dir_all(dst);
+    let Ok(entries) = fs::read_dir(src) else { return };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let out = dst.join(p.file_name().unwrap());
+        if p.is_dir() {
+            copy_dir_missing(&p, &out);
+        } else if p.is_file() && !out.exists() {
+            let _ = fs::copy(&p, &out);
+        }
     }
 }
 

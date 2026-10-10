@@ -47,6 +47,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -1530,21 +1531,182 @@ public class MainActivity extends Activity {
         try {
             Os.setenv("LOOKING_GLASS_ANDROID_LANG", isRussianLocale() ? "ru" : "en", true);
             File ext = getExternalFilesDir(null);
-            if (ext == null) {
-                ext = getFilesDir();
+            // On some Android 11/12/13 builds, immediately after an APK upgrade
+            // getExternalFilesDir() can briefly return null while the system
+            // re-attaches the external-storage volume. Fall back through known
+            // canonical locations but never silently drop into a temp dir — that
+            // is what caused saves/pk3s to "disappear" after an update.
+            if (ext == null || !ext.exists()) {
+                File[] candidates = new File[] {
+                    getFilesDir(),
+                    new File("/storage/emulated/0/Android/data/" + getPackageName() + "/files"),
+                    new File("/sdcard/Android/data/" + getPackageName() + "/files"),
+                    new File("/data/data/" + getPackageName() + "/files"),
+                    new File("/data/user/0/" + getPackageName() + "/files"),
+                };
+                for (File c : candidates) {
+                    if (c != null && (c.exists() || c.mkdirs())) {
+                        ext = c;
+                        break;
+                    }
+                }
             }
             if (ext != null) {
+                ext.mkdirs();
                 storageRoot = ext;
                 File baseDir = new File(ext, "base");
                 File saveDir = new File(ext, "saves");
                 baseDir.mkdirs();
                 saveDir.mkdirs();
+
+                // Try to migrate user data from any legacy storage locations into
+                // the canonical dir BEFORE the Rust side starts resolving paths.
+                // This is what protects saves/pk3s across upgrades.
+                migrateLegacyData(ext);
+
                 Os.setenv("RUST_MIN_STACK", "16777216", true);
+                // Always overwrite these env vars on launch (third arg = true),
+                // so a stale value from a previous APK build cannot point the
+                // engine at a deleted / non-existent path after an upgrade.
                 Os.setenv("LOOKING_GLASS_ANDROID_STORAGE", ext.getAbsolutePath(), true);
-                Os.setenv("LOOKING_GLASS_DATA", baseDir.getAbsolutePath(), false);
+                Os.setenv("LOOKING_GLASS_ANDROID_DIR", ext.getAbsolutePath(), true);
+                Os.setenv("LOOKING_GLASS_SETTINGS_DIR", ext.getAbsolutePath(), true);
+                Os.setenv("LOOKING_GLASS_DATA", baseDir.getAbsolutePath(), true);
             }
         } catch (Exception ignored) {
             // Native fallback paths in src/android.rs handle any restricted environment.
+        }
+    }
+
+    /**
+     * Copies any .pk3 files and the entire saves/ tree from a list of legacy
+     * directories (old storage locations used by earlier builds, or locations
+     * the Rust side could have created when getExternalFilesDir temporarily
+     * returned null) into the canonical storage root. Existing files are never
+     * overwritten, and source files are NOT deleted — we copy only what is
+     * missing, so even if the user is paranoid nothing is ever lost.
+     */
+    private void migrateLegacyData(File canonicalRoot) {
+        try {
+            File canonBase = new File(canonicalRoot, "base");
+            File canonSaves = new File(canonicalRoot, "saves");
+            canonBase.mkdirs();
+            canonSaves.mkdirs();
+
+            File[] legacyRoots = new File[] {
+                new File("/storage/emulated/0/LookingGlass/private"),
+                new File("/sdcard/LookingGlass/private"),
+                new File("/storage/emulated/0/LookingGlass"),
+                new File("/sdcard/LookingGlass"),
+                getFilesDir(),
+                new File(getApplicationInfo().dataDir, "files"),
+                new File("private"),
+            };
+
+            for (File legacy : legacyRoots) {
+                if (legacy == null) continue;
+                try {
+                    String canonPath = canonicalRoot.getCanonicalPath();
+                    String legacyPath = legacy.getCanonicalPath();
+                    if (legacyPath.equals(canonPath)) continue;
+                } catch (Exception ignored) {
+                }
+                // Migrate .pk3 files from legacy base/ dirs
+                File[] pk3Dirs = new File[] {
+                    legacy,
+                    new File(legacy, "base"),
+                    new File(legacy, "Alice1/bin/base"),
+                };
+                for (File pk3Dir : pk3Dirs) {
+                    if (pk3Dir == null || !pk3Dir.isDirectory()) continue;
+                    File[] pk3s = pk3Dir.listFiles();
+                    if (pk3s == null) continue;
+                    for (File f : pk3s) {
+                        if (f == null || !f.isFile()) continue;
+                        String name = f.getName().toLowerCase(Locale.ROOT);
+                        if (!name.endsWith(".pk3")) continue;
+                        File dest = new File(canonBase, f.getName());
+                        if (!dest.exists() && f.length() > 0) {
+                            try {
+                                copyFile(f, dest);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+                }
+                // Migrate saves/ directory recursively
+                File legacySaves = new File(legacy, "saves");
+                if (legacySaves.isDirectory()) {
+                    copyDirectoryIfMissing(legacySaves, canonSaves);
+                }
+                // Also migrate loose config/persistence files at the root
+                if (legacy.isDirectory()) {
+                    File[] roots = legacy.listFiles();
+                    if (roots != null) {
+                        for (File f : roots) {
+                            if (f == null || !f.isFile()) continue;
+                            String n = f.getName();
+                            if (n.equals("data-path.txt")
+                                    || n.endsWith(".cfg")
+                                    || n.endsWith(".json")
+                                    || n.endsWith(".log")
+                                    || n.equals("crash.log")) {
+                                File dest = new File(canonicalRoot, n);
+                                if (!dest.exists()) {
+                                    try {
+                                        copyFile(f, dest);
+                                    } catch (Exception ignored) {
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // Migration is best-effort — never block startup.
+        }
+    }
+
+    private static void copyDirectoryIfMissing(File src, File dst) {
+        if (src == null || dst == null || !src.isDirectory()) return;
+        dst.mkdirs();
+        File[] items = src.listFiles();
+        if (items == null) return;
+        for (File item : items) {
+            if (item == null) continue;
+            File out = new File(dst, item.getName());
+            if (item.isDirectory()) {
+                copyDirectoryIfMissing(item, out);
+            } else if (item.isFile() && !out.exists() && item.length() > 0) {
+                try {
+                    copyFile(item, out);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private static void copyFile(File src, File dst) throws Exception {
+        File tmp = new File(dst.getParentFile(), dst.getName() + ".migrate");
+        byte[] buf = new byte[256 * 1024];
+        try (java.io.FileInputStream in = new java.io.FileInputStream(src);
+             FileOutputStream out = new FileOutputStream(tmp)) {
+            int r;
+            while ((r = in.read(buf)) > 0) {
+                out.write(buf, 0, r);
+            }
+        }
+        if (!tmp.renameTo(dst)) {
+            // rename across filesystems may fail; fall back to in-place copy.
+            try (java.io.FileInputStream in = new java.io.FileInputStream(tmp);
+                 FileOutputStream out = new FileOutputStream(dst)) {
+                int r;
+                while ((r = in.read(buf)) > 0) {
+                    out.write(buf, 0, r);
+                }
+            }
+            tmp.delete();
         }
     }
 

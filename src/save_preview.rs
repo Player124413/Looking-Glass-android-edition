@@ -58,6 +58,7 @@ impl Preview {
 pub struct Frame {
     texture: Option<Texture2D>,
     tick: u32,
+    pending: bool,
 }
 
 /// Isolated native persistence/menu regression; never opens player save slots.
@@ -208,15 +209,33 @@ pub async fn check(assets: &mut crate::assets::Assets) -> Result<()> {
 impl Frame {
     pub fn clear(&mut self) {
         self.texture = None;
+        self.pending = false;
+    }
+    /// Schedule a screen capture to happen on the next `update()` call. Used on
+    /// Android so we only pay the framebuffer readback cost when a save is about
+    /// to happen, instead of grabbing the screen every frame.
+    pub fn request(&mut self) {
+        self.pending = true;
     }
     /// Call after the world and first-person toy, before any menus/HUD/cursor.
     pub fn update(&mut self) {
+        // On Android / tile-based mobile GPUs we avoid the per-frame readback
+        // (glReadPixels on a tiled GPU forces a mid-frame flush that destroys
+        // the binning pass) and only capture when a save explicitly requests a
+        // preview via `request()`. Desktop captures every N frames based on the
+        // active performance preset.
+        let is_android = crate::android::is_android();
         let interval = crate::android::active_preset().save_preview_interval();
-        if crate::android::is_android() {
+
+        if is_android && !self.pending {
+            // Age out any stale texture so it can be GC'd; but if a preview was
+            // already taken this frame, still finish processing it below.
+            self.tick = self.tick.wrapping_add(1);
             return;
         }
+
         self.tick = self.tick.wrapping_add(1);
-        if self.texture.is_some() && interval > 1 && self.tick % interval != 0 {
+        if self.texture.is_some() && interval > 1 && self.tick % interval != 0 && !self.pending {
             return;
         }
         let (w, h) = macroquad::miniquad::window::screen_size();
@@ -236,6 +255,7 @@ impl Frame {
             )));
         }
         self.texture.as_ref().unwrap().grab_screen();
+        self.pending = false;
     }
     pub fn preview(&self) -> Option<Preview> {
         Preview::encode(self.texture.as_ref()?.get_texture_data())

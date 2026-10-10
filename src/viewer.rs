@@ -994,18 +994,14 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                     } else if !stats.alive() {
                         "Retry or load a game before saving".into()
                     } else {
-                        match store.write_with_preview(
-                            slot,
-                            &game_snapshot!(),
-                            save_frame.preview().as_ref(),
-                        ) {
-                            Ok(()) => {
-                                retry.remember(game_snapshot!());
-                                played = true;
-                                format!("Game saved in {}", slot.title())
-                            }
-                            Err(e) => format!("Save failed: {e:#}"),
-                        }
+                        // Defer to the next frame so the 3D world renders once
+                        // more before we grab_screen() — otherwise the thumbnail
+                        // shows the menu (or is black on Android where per-frame
+                        // capture is disabled).
+                        pending_save_slot = Some(slot);
+                        escape_menu.close();
+                        paused = false;
+                        format!("Saving to {}...", slot.title())
                     };
                 }
                 Action::Load(slot) => {
@@ -1120,12 +1116,18 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         let mut console_restart = false;
         let mut console_fly = false;
         let mut summon_cat = false;
-        let mut save_requested =
+        // pending_save_slot collects every save trigger that must fire at end-of-frame
+        // (after the world has been re-rendered so the thumbnail is fresh). This covers:
+        //   - F5 quick save
+        //   - autosave transitions (level load / checkpoint)
+        //   - the pause menu's "Save to slot N" (which resolves mid-modal-loop,
+        //     so is deferred one frame to avoid a menu-stained thumbnail)
+        let quicksave =
             focused && !console_input && input.key(&preferences, KeyCode::F5, true);
+        let mut pending_save_slot: Option<Slot> = quicksave.then_some(Slot::Quick);
         let mut load_requested =
             (focused && !console_input && input.key(&preferences, KeyCode::F9, true))
                 .then_some(Slot::Quick);
-        let mut autosave_requested = false;
         if toggle_console || (console.open && focused && input.ui(KeyCode::Escape)) {
             console.open = !console.open;
             menu = false;
@@ -1244,7 +1246,11 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                         console_restart = true;
                         console.open = false;
                     }
-                    Ok(Command::Save) => save_requested = true,
+                    Ok(Command::Save) => {
+                        if pending_save_slot.is_none() {
+                            pending_save_slot = Some(Slot::Quick);
+                        }
+                    }
                     Ok(Command::Load(slot)) => load_requested = Some(slot),
                     Ok(Command::Noclip) => {
                         console_fly = true;
@@ -2384,7 +2390,9 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
                     weapon_buttons.block();
                     level_art = next.art;
                     skip_scene = crate::cinematic::Skip::default();
-                    autosave_requested = options.frames.is_none();
+                    if options.frames.is_none() {
+                        pending_save_slot = Some(Slot::Auto);
+                    }
                     retry.remember(game_snapshot!());
                     let visit = crate::campaign::choice_position(&level_choices, current, entry_spawn.as_deref());
                     hud.announce(&level_choices[visit].title);
@@ -3000,6 +3008,13 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             &scene.atmosphere,
             fullbright,
         );
+        // If a save is pending, flag the preview grabber so the next update()
+        // (called right after the world finishes drawing this frame) captures a
+        // fresh screenshot instead of using a stale one or returning None on
+        // Android where per-frame capture is throttled.
+        if saves_enabled && pending_save_slot.is_some() {
+            save_frame.request();
+        }
         scene.draw(camera, environment_clock, fullbright, false, &transforms);
         if show_alice && stats.invisible <= 0. {
             crate::lighting::shadow(&scene.world, player.feet, 22.);
@@ -3420,43 +3435,39 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             ui.cursor();
         }
         console.draw(&ui);
-        if save_requested || autosave_requested {
-            if !saves_enabled {
-                if save_requested {
-                    hud.announce("Saving is unavailable in a staged preview");
-                }
+        if let Some(slot) = pending_save_slot {
+            let save_result: Result<(), String> = if !saves_enabled {
+                Err("Saving is unavailable in a staged preview".into())
             } else if !stats.alive() {
-                if save_requested {
-                    hud.announce("Retry or load a game before saving");
-                }
+                Err("Retry or load a game before saving".into())
             } else {
-                let slot = if save_requested {
-                    Slot::Quick
-                } else {
-                    Slot::Auto
-                };
-                match store.write_with_preview(
-                    slot,
-                    &game_snapshot!(),
-                    save_frame.preview().as_ref(),
-                ) {
-                    Ok(()) => {
-                        retry.remember(game_snapshot!());
-                        played = true;
-                        hud.announce(if slot == Slot::Quick {
-                            "Game saved / F9 to load"
-                        } else {
-                            "Progress saved"
-                        });
-                        if save_requested {
-                            console.print("Game saved / F9 to load");
-                        }
+                store
+                    .write_with_preview(
+                        slot,
+                        &game_snapshot!(),
+                        save_frame.preview().as_ref(),
+                    )
+                    .map_err(|e| format!("{e:#}"))
+            };
+            match save_result {
+                Ok(()) => {
+                    retry.remember(game_snapshot!());
+                    played = true;
+                    let msg = match slot {
+                        Slot::Quick => "Game saved / F9 to load",
+                        Slot::Auto => "Progress saved",
+                        _ => "Game saved",
+                    };
+                    hud.announce(msg);
+                    if slot == Slot::Quick {
+                        console.print("Game saved / F9 to load");
+                    } else if matches!(slot, Slot::One | Slot::Two | Slot::Three | Slot::Four) {
+                        console.print(format!("Game saved to {}", slot.title()));
                     }
-                    Err(e) => {
-                        let message = format!("Save failed: {e:#}");
-                        hud.announce(&message);
-                        console.print(message);
-                    }
+                }
+                Err(message) => {
+                    hud.announce(&format!("Save failed: {message}"));
+                    console.print(format!("Save failed: {message}"));
                 }
             }
         }
