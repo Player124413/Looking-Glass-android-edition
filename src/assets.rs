@@ -144,10 +144,7 @@ pub fn import_archive(src: &Path, dest: &Path) -> Result<usize> {
             Ok(1)
         }
         "zip" => import_zip(src, dest),
-        "7z" | "7zip" => bail!(
-            "7z archives are not supported. Extract the archive on your device (e.g. with "
-            "ZArchiver) or PC first, then select the .pk3 files inside."
-        ),
+        "7z" | "7zip" => bail!("7z archives are not supported. Extract the archive on your device (e.g. with ZArchiver) or PC first, then select the .pk3 files inside."),
         other => bail!("Unsupported archive type: {other}"),
     }
 }
