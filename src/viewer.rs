@@ -948,7 +948,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         if is_quit_requested() {
             break;
         }
-        if window_focused() && !console.open {
+        if window_focused() && !console.open && !escape_menu.page.is_some() {
             if (is_key_pressed(KeyCode::Escape)
                 || is_key_pressed(KeyCode::Back)
                 || input.pad_pressed("Start")
@@ -3524,9 +3524,14 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             }
             break;
         }
-        if context_before != (menu, inventory_menu, console.open, paused) {
-            input.suppress();
-        }
+        // NOTE: we intentionally do NOT call input.suppress() here when the
+        // overlay state changes. Suppressing here (at END of the same frame
+        // where the MENU/MAP press edge was just raised) clears `self.pressed`
+        // before the next input.update() even sees the edge, so short taps
+        // never register — the player has to hold the button long enough for
+        // a second frame of press to leak through. Each transition point that
+        // needs to drain the opening finger (escape menu / chapters / inv)
+        // suppresses+drain_active_touches explicitly at the right moment.
         next_frame().await;
     }
     if saves_enabled && played && stats.alive() && options.frames.is_none() && !post_game {
