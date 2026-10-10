@@ -1360,18 +1360,18 @@ impl Menu {
     ) -> Action {
         show_mouse(false);
         self.refresh_saves(store);
-        // Entry grace period: on Android, the finger that tapped MENU/MAP is
-        // often still down (or re-reported as Stationary/Moved/Started by the
-        // OS) for a few frames after we enter the modal loop, even after
-        // suppress()+drain_active_touches(). During those frames the pointer
-        // is hovering on whatever button lies under that finger (e.g.
-        // "back to game"), and one stray click would dismiss the menu we
-        // just opened. So for the first ~150 ms we ignore:
-        //   - pointer clicks (new finger Started events)
-        //   - Escape / Back key
-        // Real navigation resumes once the grace frames elapse or the finger
-        // lifts, whichever comes first.
-        let mut grace_frames: u32 = 10;
+        // Entry grace period (TIME-BASED, 400 ms). On Android, the finger that
+        // tapped MENU can be re-delivered by the OS (new ID, re-Started event,
+        // synthesized mouse-left click, or focus-change Escape) for several
+        // frames after we enter the modal loop, and miniquad does not always
+        // return Stationary touches while the finger is held — so we cannot
+        // rely on finger-lift to end grace. During this window we ignore:
+        //   - any pointer clicks / drags
+        //   - Escape / Back / Tab / Y / N keys
+        //   - any clicks landed on buttons (Resume/Quit/Back/...)
+        // After 400 ms the opening finger is guaranteed to have either lifted
+        // or settled, and real player input resumes.
+        let grace_deadline = get_time() + 0.40;
         loop {
             let page = self.page.unwrap_or(Page::Main);
             let mut action = None;
@@ -1386,22 +1386,16 @@ impl Menu {
             audio.update(0., listener, yaw, true, true);
             let canvas = Canvas::new(screen_width(), screen_height());
             let (mouse, pointer_pressed_raw, pointer_down_raw) = crate::touch::pointer_state();
-            let any_touch_down = touches().iter().any(|t| {
-                matches!(t.phase, TouchPhase::Started | TouchPhase::Moved | TouchPhase::Stationary)
-            });
-            // End grace when the countdown runs out OR the opening finger
-            // has lifted (no fingers on screen = safe to accept new taps).
-            if grace_frames > 0 {
-                grace_frames -= 1;
-                if !any_touch_down {
-                    grace_frames = 0;
-                }
-            }
-            let grace = grace_frames > 0;
-            // During grace, swallow pointer-pressed edges and Escape/Back so
-            // the opening finger cannot dismiss the menu.
+            // Grace ends purely on wall-clock time — no "finger lifted" short-
+            // circuit, because miniquad/Android sometimes skips Stationary
+            // events and touches() appears empty even while a finger is held.
+            let grace = get_time() < grace_deadline;
+            // During grace, swallow every source of click/close input.
             let pointer_pressed = pointer_pressed_raw && !grace;
             let pointer_down = if grace { false } else { pointer_down_raw };
+            // Also synthesize a "virtual mouse released" so if Android has
+            // already set mouse_left_down=true from the opening finger, we
+            // don't see a spurious drag-click mid-grace.
             let hit = buttons
                 .iter()
                 .position(|b| b.rect.contains(canvas.pointer(mouse)));
@@ -1451,13 +1445,20 @@ impl Menu {
                     if input.ui(KeyCode::Up) {
                         self.selected = (self.selected + buttons.len() - 1) % buttons.len();
                     }
-                    let click = if page == Page::Main && input.ui(KeyCode::Tab) && !grace {
+                    // Escape/Back/Tab/Y/N are ALL suppressed during grace so the
+                    // opening finger (or any synthetic Android Back it triggers)
+                    // cannot dismiss us. Pad B/Start are also routed through
+                    // input.ui(Escape), so they're covered automatically.
+                    let hard_block = grace;
+                    let click = if !hard_block && page == Page::Main && input.ui(KeyCode::Tab) {
                         Some(Click::Action(Action::Chapters))
-                    } else if input.ui(KeyCode::Escape) && !grace {
+                    } else if !hard_block && (input.ui(KeyCode::Escape)
+                        || is_key_pressed(KeyCode::Back))
+                    {
                         Some(Click::Back)
-                    } else if page == Page::Quit && is_key_pressed(KeyCode::Y) && !grace {
+                    } else if !hard_block && page == Page::Quit && is_key_pressed(KeyCode::Y) {
                         Some(Click::Action(Action::Quit))
-                    } else if page == Page::Quit && is_key_pressed(KeyCode::N) && !grace {
+                    } else if !hard_block && page == Page::Quit && is_key_pressed(KeyCode::N) {
                         Some(Click::Back)
                     } else if page == Page::Settings && is_key_pressed(KeyCode::Key1) {
                         Some(Click::Page(Page::Video))

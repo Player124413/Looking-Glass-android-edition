@@ -721,10 +721,13 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
     // frame after the menu closes and the 3D world re-renders for a fresh
     // thumbnail (instead of saving a menu-stilled or black frame).
     let mut menu_save_pending: Option<Slot> = None;
-    // Overlay grace: for a few frames after opening the chapters (MAP)
-    // overlay or inventory, ignore pointer clicks and Escape so the finger
-    // that opened the overlay cannot immediately select something / close it.
-    let mut overlay_grace: u32 = 0;
+    // Overlay grace: time-based, 400 ms after opening MAP/inventory. During
+    // this window we ignore Escape/pointer clicks so the opening finger can't
+    // immediately dismiss the newly opened overlay. Wall-clock based because
+    // Android/miniquad sometimes skip Stationary touch events (touches() looks
+    // empty while the finger is still held), which makes frame-count-based or
+    // finger-lift-based grace end one frame too early.
+    let mut overlay_grace_until: f64 = 0.;
     macro_rules! level_snapshot {
         () => {
             Level {
@@ -1393,9 +1396,12 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         let edge = |key: KeyCode| -> bool { focused && !console_input && input.key(&preferences, key, true) };
         let mut opening_map = false;
         let mut opening_inv = false;
-        // Ignore Escape-close of MAP/inventory during the opening grace period.
-        let in_overlay_grace = overlay_grace > 0;
-        if input.ui(KeyCode::Escape) && !console_input && !in_overlay_grace {
+        // Ignore Escape-close of MAP/inventory during the opening grace period
+        // (time-based: 400 ms).
+        let in_overlay_grace = get_time() < overlay_grace_until;
+        let esc_pressed = input.ui(KeyCode::Escape)
+            || is_key_pressed(KeyCode::Back);
+        if esc_pressed && !console_input && !in_overlay_grace {
             if inventory_menu {
                 inventory_menu = false;
             } else if menu {
@@ -1409,7 +1415,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             if menu {
                 opening_map = true;
                 clock.pause();
-                overlay_grace = 10;
+                overlay_grace_until = get_time() + 0.40;
             }
             chapters.open(
                 crate::campaign::choice_position(&level_choices, current, entry_spawn.as_deref()),
@@ -1423,7 +1429,7 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
             clock.pause();
             if inventory_menu {
                 opening_inv = true;
-                overlay_grace = 10;
+                overlay_grace_until = get_time() + 0.40;
             }
         }
         // Drain the finger that just opened MAP/inventory so it can't click
@@ -1431,9 +1437,6 @@ pub async fn run(mut assets: Assets, mut options: Options) -> Result<()> {
         if opening_map || opening_inv {
             input.suppress();
             crate::touch::drain_active_touches();
-        }
-        if overlay_grace > 0 {
-            overlay_grace -= 1;
         }
 
         // Edge/held helpers for the rest of the frame. These closures borrow
