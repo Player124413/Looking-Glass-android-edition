@@ -1258,13 +1258,20 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
             2. * s,
             Color::from_hex(0x8c6d46),
         );
-        let pointer = touches()
+        let pointer_pressed = {
+            // Rely on touch.rs's pointer_state(), which correctly handles Android
+            // touch edge detection (Started phase filtering, draining, etc.).
+            // Use the _pressed_ edge only so holding a finger doesn't re-fire
+            // selections every frame.
+            let (_pos, pressed, _down) = crate::touch::pointer_state();
+            pressed
+        };
+        // Position of the first active touch (or mouse) for hit-testing.
+        let pointer_pos = touches()
             .iter()
-            .find(|t| t.phase == TouchPhase::Started)
+            .find(|t| !matches!(t.phase, TouchPhase::Ended | TouchPhase::Cancelled))
             .map(|t| t.position)
-            .or_else(|| {
-                is_mouse_button_pressed(MouseButton::Left).then(|| Vec2::from(mouse_position()))
-            });
+            .or_else(|| is_mouse_button_down(MouseButton::Left).then(|| Vec2::from(mouse_position())));
 
         let x = panel.x + 26. * s;
         let mut y = panel.y + 84. * s;
@@ -1312,13 +1319,13 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 WHITE,
             );
         }
-        if pointer.is_some_and(|p| tg_btn.contains(p)) {
+        if pointer_pressed && pointer_pos.is_some_and(|p| tg_btn.contains(p)) {
             let _ = open_telegram_link();
             status = "Opening https://t.me/player1444ports ...".into();
-        } else if pointer.is_some_and(|p| upd_btn.contains(p)) {
+        } else if pointer_pressed && pointer_pos.is_some_and(|p| upd_btn.contains(p)) {
             let _ = check_for_updates();
             status = "Checking for updates on GitHub...".into();
-        } else if pointer.is_some_and(|p| info_btn.contains(p)) {
+        } else if pointer_pressed && pointer_pos.is_some_and(|p| info_btn.contains(p)) {
             let _ = show_credits_dialog();
         }
 
@@ -1390,7 +1397,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     btn.w - 30. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
-                if pointer.is_some_and(|p| btn.contains(p)) {
+                if pointer_pressed && pointer_pos.is_some_and(|p| btn.contains(p)) {
                     prefs.fps_limit = mode;
                     set_active_fps_limit(mode);
                     let _ = prefs.save();
@@ -1434,7 +1441,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     btn.w - 24. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
-                if pointer.is_some_and(|p| btn.contains(p)) {
+                if pointer_pressed && pointer_pos.is_some_and(|p| btn.contains(p)) {
                     prefs.performance_preset = preset;
                     set_active_preset(preset);
                     let _ = prefs.save();
@@ -1488,7 +1495,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     btn.w - 20. * s,
                     if active { Color::from_hex(0xfff2d6) } else { WHITE },
                 );
-                if pointer.is_some_and(|p| btn.contains(p)) {
+                if pointer_pressed && pointer_pos.is_some_and(|p| btn.contains(p)) {
                     prefs.touch_mode = mode;
                     let _ = prefs.save();
                     status = if mode == crate::touch::TouchMode::Off {
@@ -1522,7 +1529,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 edit_hud_btn.w - 24. * s,
                 WHITE,
             );
-            if pointer.is_some_and(|p| edit_hud_btn.contains(p)) {
+            if pointer_pressed && pointer_pos.is_some_and(|p| edit_hud_btn.contains(p)) {
                 editing_touch = true;
                 next_frame().await;
                 continue;
@@ -1562,14 +1569,14 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 );
             }
 
-            if pointer.is_some_and(|p| folder_btn.contains(p)) {
+            if pointer_pressed && pointer_pos.is_some_and(|p| folder_btn.contains(p)) {
                 if open_system_folder_picker() {
                     status = "Opening Android system folder chooser...".into();
                 } else {
                     browsing = true;
                     browse_scroll = 0;
                 }
-            } else if pointer.is_some_and(|p| file_btn.contains(p)) {
+            } else if pointer_pressed && pointer_pos.is_some_and(|p| file_btn.contains(p)) {
                 if open_system_file_picker() {
                     status = "Opening Android system file chooser (.pk3 / .zip)...".into();
                 } else {
@@ -1584,7 +1591,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
             let trigger_scan = is_key_pressed(KeyCode::Enter)
                 || is_key_pressed(KeyCode::Space)
                 || pad_start
-                || pointer.is_some_and(|p| scan_btn.contains(p));
+                || pointer_pressed && pointer_pos.is_some_and(|p| scan_btn.contains(p));
             let trigger_quit = is_key_pressed(KeyCode::Escape) || is_key_pressed(KeyCode::Back);
             if trigger_quit {
                 macroquad::miniquad::window::request_quit();
@@ -1655,7 +1662,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     row_rect.w - 28. * s,
                     WHITE,
                 );
-                if pointer.is_some_and(|p| row_rect.contains(p)) {
+                if pointer_pressed && pointer_pos.is_some_and(|p| row_rect.contains(p)) {
                     browse_dir = dir_path.clone();
                     browse_scroll = 0;
                 }
@@ -1694,18 +1701,18 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 );
             }
 
-            if pointer.is_some_and(|p| up_btn.contains(p)) {
+            if pointer_pressed && pointer_pos.is_some_and(|p| up_btn.contains(p)) {
                 if let Some(parent) = browse_dir.parent() {
                     browse_dir = parent.to_path_buf();
                     browse_scroll = 0;
                 }
-            } else if pointer.is_some_and(|p| prev_btn.contains(p)) {
+            } else if pointer_pressed && pointer_pos.is_some_and(|p| prev_btn.contains(p)) {
                 browse_scroll = browse_scroll.saturating_sub(max_rows);
-            } else if pointer.is_some_and(|p| next_btn.contains(p)) {
+            } else if pointer_pressed && pointer_pos.is_some_and(|p| next_btn.contains(p)) {
                 if browse_scroll + max_rows < subdirs.len() {
                     browse_scroll += max_rows;
                 }
-            } else if pointer.is_some_and(|p| copy_btn.contains(p)) {
+            } else if pointer_pressed && pointer_pos.is_some_and(|p| copy_btn.contains(p)) {
                 let dest_base = root.join("base");
                 match import_game_dir(&browse_dir, &dest_base) {
                     Ok(count) => match open_ready_assets(&initial, &root) {
@@ -1721,7 +1728,7 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                 }
             } else if is_key_pressed(KeyCode::Escape)
                 || is_key_pressed(KeyCode::Back)
-                || pointer.is_some_and(|p| back_btn.contains(p))
+                || pointer_pressed && pointer_pos.is_some_and(|p| back_btn.contains(p))
             {
                 browsing = false;
             }
