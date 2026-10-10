@@ -6,7 +6,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use zip::ZipArchive;
-use zip::read::ZipFile;
 
 const MAX_ENTRY: u64 = 128 * 1024 * 1024;
 
@@ -108,7 +107,12 @@ pub fn import_archive(src: &Path, dest: &Path) -> Result<usize> {
             Ok(1)
         }
         "zip" => import_zip(src, dest),
-        "7z" | "7zip" => import_7z(src, dest),
+        "7z" | "7zip" => bail!(
+            "7z archives are not supported directly. Extract '{}' on your PC/device \
+             first (e.g. with ZArchiver) to get the .pk3 files inside, then select those .pk3 \
+             files with the Install Mod button.",
+            src.file_name().and_then(|f| f.to_str()).unwrap_or("archive")
+        ),
         other => bail!("Unsupported archive type: {other}"),
     }
 }
@@ -166,51 +170,6 @@ fn import_zip(src: &Path, dest: &Path) -> Result<usize> {
     }
     let _ = fs::remove_dir_all(&tmp_dir);
     Ok(count)
-}
-
-fn import_7z(src: &Path, dest: &Path) -> Result<usize> {
-    use sevenz_rust::SevenZReader;
-    let mut sz = SevenZReader::open(src, sevenz_rust::Password::empty())
-        .with_context(|| format!("Invalid 7Z: {}", src.display()))?;
-    let tmp_dir = dest.join(".tmp_mod_extract");
-    let _ = fs::create_dir_all(&tmp_dir);
-    let count = std::cell::Cell::new(0usize);
-    let dest_c = dest.to_path_buf();
-    sz.for_each_entries(|entry, reader| {
-        use std::io::Read;
-        if entry.is_directory() {
-            return Ok(true);
-        }
-        let rel = sanitize_archive_path(entry.name());
-        if rel.is_empty() {
-            return Ok(true);
-        }
-        let lower = rel.rsplit('/').next().unwrap_or("").to_ascii_lowercase();
-        let out_path = if lower.ends_with(".pk3") {
-            dest_c.join(&rel)
-        } else if lower.ends_with(".zip") || lower.ends_with(".7z") || lower.ends_with(".7zip") {
-            tmp_dir.join(&rel)
-        } else {
-            return Ok(true);
-        };
-        if let Some(parent) = out_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        if let Ok(mut f) = File::create(&out_path) {
-            std::io::copy(&mut reader.take(512 * 1024 * 1024), &mut f).ok();
-        }
-        if lower.ends_with(".pk3") {
-            count.set(count.get() + 1);
-        } else {
-            if let Ok(n) = import_archive(&out_path, &dest_c) {
-                count.set(count.get() + n);
-            }
-            let _ = fs::remove_file(&out_path);
-        }
-        Ok(true)
-    })?;
-    let _ = fs::remove_dir_all(&tmp_dir);
-    Ok(count.get())
 }
 
 fn sanitize_archive_path(name: &str) -> String {

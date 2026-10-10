@@ -371,8 +371,8 @@ public class MainActivity extends Activity {
 
     /**
      * JNI bridge: extract any .pk3 files (including those inside nested
-     * .zip/.7z) from the archive at {@code archivePath} into {@code destDir}.
-     * Returns the number of pk3 files written.
+     * .zip archives) from the archive at {@code archivePath} into {@code destDir}.
+     * Returns the number of pk3 files written, or -1 on error.
      */
     public static native int nativeImportModArchive(String archivePath, String destDir);
 
@@ -1946,18 +1946,11 @@ public class MainActivity extends Activity {
                 // ZIPs that contain .pk3s (Alice mod zips) — extract straight into mods/.
                 copied += extractPk3FromZipUri(resolver, uri, name, modsDir);
             } else if (lower.endsWith(".7z") || lower.endsWith(".7zip")) {
-                // Copy to a temp file and ask Rust's sevenz_rust to extract pk3s out of it.
-                File tmp = new File(tmpDir, safeName);
-                copyUriToFile(resolver, uri, tmp, safeName, i + 1, total);
-                try {
-                    int n = nativeImportModArchive(tmp.getAbsolutePath(), modsDir.getAbsolutePath());
-                    copied += Math.max(n, 0);
-                } catch (Throwable t) {
-                    writeImportStatus("ERROR", "7z extraction failed for " + safeName + ": " + t.getMessage());
-                }
-                if (tmp.exists()) tmp.delete();
+                writeImportStatus("ERROR",
+                        "7z archives must be extracted first. Use ZArchiver (or your PC) to " +
+                        "unpack " + safeName + ", then select the .pk3 files inside.");
             } else {
-                writeImportStatus("BUSY", "Skipping " + safeName + " (not .pk3 / .zip / .7z).");
+                writeImportStatus("BUSY", "Skipping " + safeName + " (not .pk3 / .zip).");
             }
         }
         // Clean tmp dir.
