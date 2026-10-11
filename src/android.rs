@@ -9,6 +9,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod controller_map;
+
 pub const PACKAGE_ID: &str = "com.lookingglass.alice";
 
 /// Initialize the Android NDK context (`JavaVM` + `Activity` handle) required by
@@ -1197,6 +1199,8 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
     let mut browsing = false;
     let mut editing_touch = false;
     let mut touch_editor = crate::touch::TouchEditor::default();
+    let mut editing_controller = false;
+    let mut controller_editor = controller_map::ControllerEditor::default();
     let mut browse_dir = initial_browse_dir(&root);
     let mut browse_scroll = 0usize;
     let mut frame = 0u32;
@@ -1218,6 +1222,27 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     "Touch controls saved (Mode: {}).",
                     prefs.touch_mode.name()
                 );
+            }
+            next_frame().await;
+            continue;
+        }
+
+        if editing_controller {
+            match controller_editor.update_and_draw(&mut prefs) {
+                controller_map::Outcome::Continue => {}
+                controller_map::Outcome::Saved(message) => {
+                    editing_controller = false;
+                    status = message;
+                }
+                controller_map::Outcome::Cancelled => {
+                    editing_controller = false;
+                    status = controller_map::tr(
+                        controller_map::is_ru(),
+                        "Controller changes discarded.",
+                        "Изменения геймпада отменены.",
+                    )
+                    .into();
+                }
             }
             next_frame().await;
             continue;
@@ -1292,7 +1317,18 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
         let tg_btn = Rect::new(panel.right() - 568. * s, top_btn_y, 250. * s, 38. * s);
         let upd_btn = Rect::new(panel.right() - 308. * s, top_btn_y, 170. * s, 38. * s);
         let info_btn = Rect::new(panel.right() - 128. * s, top_btn_y, 110. * s, 38. * s);
+        let ctrl_btn = Rect::new(panel.x + 26. * s, top_btn_y, 230. * s, 38. * s);
         for (rect, label, fill, border) in [
+            (
+                ctrl_btn,
+                controller_map::tr(
+                    controller_map::is_ru(),
+                    "Controller Setup",
+                    "Настройка геймпада",
+                ),
+                Color::from_hex(0x1f618d),
+                Color::from_hex(0x85c1e9),
+            ),
             (
                 tg_btn,
                 "Port by Player1444 (TG)",
@@ -1331,6 +1367,9 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
             status = "Checking for updates on GitHub...".into();
         } else if pointer_pressed && info_btn.contains(pointer_pos) {
             let _ = show_credits_dialog();
+        } else if pointer_pressed && ctrl_btn.contains(pointer_pos) {
+            controller_editor.start(&prefs);
+            editing_controller = true;
         }
 
         y += 30. * s;

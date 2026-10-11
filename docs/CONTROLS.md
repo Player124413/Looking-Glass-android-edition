@@ -35,6 +35,20 @@ Controller layout revision 2 removed the default Back/View → chapter chooser s
 
 Controllers can be connected during play. A disconnected active controller pauses the game; keyboard and mouse remain usable. Release buttons and centre the sticks after connecting, returning to the window or leaving an overlay. Held input is suppressed across these boundaries so menus, save loads and reconnections do not fire a weapon or move Alice unexpectedly. Prompts follow the most recently used input and the chosen bindings.
 
+## Controller setup in the Android launcher
+
+On Android, the launcher has a **Controller Setup** button in its top bar. It edits the same controller bindings as **Settings → Controls → Controller**, with a simpler layout for phones and gamepads:
+
+- **Categories** (Move, Combat, Toys, Actions, Other) show the 38 actions, eight per page. Tap a row, or use D-pad Up/Down and LB/RB (tabs) with A to select.
+- **Assign**: after selecting an action, press the button on your controller, or tap the button on the right side. Button groups are shown as triggers and bumpers, face buttons, D-pad, and sticks and menu.
+- **Swap**: assigning a button that another action already uses swaps the two, the same as the in-game Controls page.
+- While the screen waits for a press, the next button you press is assigned. Start or Escape stops waiting.
+- **Unbind selected** clears the action's button. **Start** is reserved for the menu and can't be assigned.
+- **Default**, **Attack: X** and **Attack: RB** change the draft layout. For example, **Attack: X** puts Primary attack on X. The action that used X receives Primary attack's previous button.
+- **Save & Close** writes `private/preferences.json`. **Cancel**, B or Back discards the draft. Nothing is saved until you press Save & Close.
+
+Keyboard and mouse bindings are not changed on this screen. Touch HUD layout stays under **Edit Touch HUD**.
+
 ## Multi-touch controls (Android & touch displays)
 
 On Android (or when **Touch Controls** is enabled in **Settings → Controls**), Looking Glass displays a context-sensitive multi-touch HUD:
