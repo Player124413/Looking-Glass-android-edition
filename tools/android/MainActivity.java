@@ -894,7 +894,7 @@ public class MainActivity extends Activity {
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                             startActivity(intent);
                         } catch (Throwable t) {
-                            writeImportStatus("IDLE", "Link: " + url);
+                            writeImportStatus("IDLE", (isRussianLocale() ? "Ссылка: " : "Link: ") + url);
                         }
                     }
                 });
@@ -1876,7 +1876,7 @@ public class MainActivity extends Activity {
                         try {
                             writeImportStatus(
                                     "PICKING",
-                                    "Select your game folder (e.g. Alice or base/)...");
+                                    (isRussianLocale() ? "Выберите папку игры (например, Alice или base/)..." : "Select your game folder (e.g. Alice or base/)..."));
                             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
                             intent.addFlags(
                                     Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -1904,7 +1904,7 @@ public class MainActivity extends Activity {
                         try {
                             writeImportStatus(
                                     "PICKING",
-                                    "Select pak0.pk3..pak4.pk3 or a game .zip archive...");
+                                    (isRussianLocale() ? "Выберите pak0.pk3..pak4.pk3 или zip-архив игры..." : "Select pak0.pk3..pak4.pk3 or a game .zip archive..."));
                             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                             intent.addCategory(Intent.CATEGORY_OPENABLE);
                             intent.setType("*/*");
@@ -1914,7 +1914,7 @@ public class MainActivity extends Activity {
                         } catch (Exception e) {
                             writeImportStatus(
                                     "ERROR",
-                                    "Could not launch Android file picker: " + e.getMessage());
+                                    (isRussianLocale() ? "Не удалось открыть выбор файлов Android: " : "Could not launch Android file picker: ") + e.getMessage());
                         }
                     }
                 });
@@ -1927,7 +1927,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (resultCode != RESULT_OK || data == null) {
-            writeImportStatus("IDLE", "Folder/file selection cancelled.");
+            writeImportStatus("IDLE", (isRussianLocale() ? "Выбор папки или файла отменён." : "Folder/file selection cancelled."));
             return;
         }
         if (importRunning) {
@@ -1946,14 +1946,14 @@ public class MainActivity extends Activity {
                                         if (treeUri != null) {
                                             importFromTreeUri(treeUri);
                                         } else {
-                                            writeImportStatus("ERROR", "No folder URI returned.");
+                                            writeImportStatus("ERROR", (isRussianLocale() ? "Система не вернула адрес папки." : "No folder URI returned."));
                                         }
                                     } else {
                                         importFromFileIntent(resultIntent);
                                     }
                                 } catch (Exception e) {
                                     writeImportStatus(
-                                            "ERROR", "Import failed: " + e.getMessage());
+                                            "ERROR", (isRussianLocale() ? "Ошибка импорта: " : "Import failed: ") + e.getMessage());
                                 } finally {
                                     importRunning = false;
                                 }
@@ -1964,7 +1964,7 @@ public class MainActivity extends Activity {
     }
 
     private void importFromTreeUri(Uri treeUri) throws Exception {
-        writeImportStatus("BUSY", "Scanning selected folder for PK3 archives...");
+        writeImportStatus("BUSY", (isRussianLocale() ? "Поиск PK3-архивов в выбранной папке..." : "Scanning selected folder for PK3 archives..."));
         ContentResolver resolver = getContentResolver();
         String rootDocId = DocumentsContract.getTreeDocumentId(treeUri);
         List<DocEntry> pk3Docs = new ArrayList<>();
@@ -1980,7 +1980,7 @@ public class MainActivity extends Activity {
                 String safeName = sanitizeFileName(entry.name);
                 writeImportStatus(
                         "BUSY",
-                        "Copying " + safeName + " (" + (i + 1) + "/" + total + ")...");
+                        (isRussianLocale() ? "Копирование " : "Copying ") + safeName + " (" + (i + 1) + "/" + total + ")...");
                 copyUriToFile(resolver, entry.uri, new File(baseDir, safeName), safeName, i + 1, total);
                 copied++;
             }
@@ -1993,11 +1993,11 @@ public class MainActivity extends Activity {
         if (copied > 0) {
             writeImportStatus(
                     "DONE",
-                    "Imported " + copied + " PK3 archive(s) into " + baseDir.getAbsolutePath());
+                    (isRussianLocale() ? "Импортировано " : "Imported ") + copied + (isRussianLocale() ? " PK3-архив(ов) в " : " PK3 archive(s) into ") + baseDir.getAbsolutePath());
         } else {
             writeImportStatus(
                     "ERROR",
-                    "No .pk3 archives found in the selected folder. Choose the Alice or base/ folder.");
+                    (isRussianLocale() ? "В выбранной папке нет PK3-архивов. Выберите папку Alice или base/." : "No .pk3 archives found in the selected folder. Choose the Alice or base/ folder."));
         }
     }
 
@@ -2061,7 +2061,7 @@ public class MainActivity extends Activity {
             uris.add(data.getData());
         }
         if (uris.isEmpty()) {
-            writeImportStatus("ERROR", "No files selected.");
+            writeImportStatus("ERROR", (isRussianLocale() ? "Файлы не выбраны." : "No files selected."));
             return;
         }
 
@@ -2084,12 +2084,12 @@ public class MainActivity extends Activity {
         if (copied > 0) {
             writeImportStatus(
                     "DONE",
-                    "Imported " + copied + " PK3 archive(s) into " + baseDir.getAbsolutePath());
+                    (isRussianLocale() ? "Импортировано " : "Imported ") + copied + (isRussianLocale() ? " PK3-архив(ов) в " : " PK3 archive(s) into ") + baseDir.getAbsolutePath());
         } else {
             writeImportStatus(
                     "ERROR",
-                    "Selected file(s) did not contain any .pk3 archives. Only .pk3 and .zip are"
-                            + " supported - extract .7z/.rar files first.");
+                    (isRussianLocale() ? "В выбранных файлах нет PK3-архивов. Поддерживаются только .pk3 и .zip" : "Selected file(s) did not contain any .pk3 archives. Only .pk3 and .zip are")
+                            + (isRussianLocale() ? " Сначала распакуйте файлы .7z/.rar." : " supported - extract .7z/.rar files first."));
         }
     }
 
@@ -2121,7 +2121,7 @@ public class MainActivity extends Activity {
                         long mb = copiedBytes / (1024L * 1024L);
                         writeImportStatus(
                                 "BUSY",
-                                "Copying "
+                                (isRussianLocale() ? "Копирование " : "Copying ")
                                         + label
                                         + " ("
                                         + index
@@ -2129,7 +2129,7 @@ public class MainActivity extends Activity {
                                         + total
                                         + ", "
                                         + mb
-                                        + " MB)...");
+                                        + (isRussianLocale() ? " МБ)..." : " MB)..."));
                     }
                 }
             }
@@ -2157,7 +2157,7 @@ public class MainActivity extends Activity {
      */
     private int extractPk3FromZipUri(
             ContentResolver resolver, Uri zipUri, String zipName, File baseDir) throws Exception {
-        writeImportStatus("BUSY", "Scanning archive " + zipName + " for .pk3 files...");
+        writeImportStatus("BUSY", (isRussianLocale() ? "Поиск .pk3 в архиве " : "Scanning archive ") + zipName + (isRussianLocale() ? "..." : " for .pk3 files..."));
         ZipFile direct = openZipFileDirect(resolver, zipUri);
         if (direct != null) {
             try {
@@ -2319,7 +2319,7 @@ public class MainActivity extends Activity {
         long bytes = 0;
         long lastReport = 0;
         boolean done = false;
-        writeImportStatus("BUSY", "Extracting " + safeName + " from " + zipName + "...");
+        writeImportStatus("BUSY", (isRussianLocale() ? "Извлечение " : "Extracting ") + safeName + (isRussianLocale() ? " из " : " from ") + zipName + "...");
         try {
             try (OutputStream out = new FileOutputStream(tmpFile)) {
                 int read;
@@ -2330,7 +2330,7 @@ public class MainActivity extends Activity {
                         lastReport = bytes;
                         long mb = bytes / (1024L * 1024L);
                         writeImportStatus(
-                                "BUSY", "Extracting " + safeName + " (" + mb + " MB)...");
+                                "BUSY", (isRussianLocale() ? "Извлечение " : "Extracting ") + safeName + " (" + mb + (isRussianLocale() ? " МБ)..." : " MB)..."));
                     }
                 }
             }
@@ -2344,7 +2344,7 @@ public class MainActivity extends Activity {
             return bytes;
         } catch (java.util.zip.ZipException e) {
             throw new IllegalStateException(
-                    "Cannot unpack " + safeName + " from " + zipName + ": " + e.getMessage()
+                    (isRussianLocale() ? "Не удалось распаковать " : "Cannot unpack ") + safeName + (isRussianLocale() ? " из " : " from ") + zipName + ": " + e.getMessage()
                             + ". " + ZIP_HINT,
                     e);
         } finally {

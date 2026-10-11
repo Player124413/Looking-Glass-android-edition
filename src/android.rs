@@ -10,6 +10,7 @@ use std::{
 };
 
 mod controller_map;
+mod i18n;
 
 pub const PACKAGE_ID: &str = "com.lookingglass.alice";
 
@@ -1166,16 +1167,31 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
 }
 
 /// Draws launcher text, shrinking it (never growing it) so it fits into `max_w` pixels.
+/// In Russian mode the text is translated and drawn with the Cyrillic system font.
 fn draw_text_fit(text: &str, x: f32, y: f32, size: f32, max_w: f32, color: Color) {
+    let text = i18n::localize(text);
+    let font = i18n::launcher_font();
     let mut fs = size.round().max(8.);
-    let width = measure_text(text, None, fs as u16, 1.0).width;
+    let width = measure_text(&text, font.as_ref(), fs as u16, 1.0).width;
     if width > max_w && width > 0. {
         fs = (fs * max_w / width).floor().max(8.);
     }
-    draw_text(text, x, y, fs, color);
+    draw_text_ex(
+        &text,
+        x,
+        y,
+        TextParams {
+            font: font.as_ref(),
+            font_size: fs as u16,
+            font_scale: 1.0,
+            color,
+            ..Default::default()
+        },
+    );
 }
 
 async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
+    i18n::ensure_launcher_font();
     let root = storage_root();
     prepare_directories(&root);
     clear_import_status(&root);
@@ -1218,9 +1234,10 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
         if editing_touch {
             if touch_editor.update_and_draw(&mut prefs) {
                 editing_touch = false;
-                status = format!(
-                    "Touch controls saved (Mode: {}).",
-                    prefs.touch_mode.name()
+                let mode = i18n::localize(prefs.touch_mode.name());
+                status = i18n::pick(
+                    format!("Touch controls saved (Mode: {mode})."),
+                    format!("Сенсорное управление сохранено (режим: {mode})."),
                 );
             }
             next_frame().await;
@@ -1444,7 +1461,11 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     prefs.fps_limit = mode;
                     set_active_fps_limit(mode);
                     let _ = prefs.save();
-                    status = format!("FPS Limit set to {} (saved).", mode.name());
+                    let name = i18n::localize(mode.name());
+                    status = i18n::pick(
+                        format!("FPS Limit set to {name} (saved)."),
+                        format!("Лимит FPS: {name} (сохранено)."),
+                    );
                 }
             }
 
@@ -1488,7 +1509,11 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     prefs.performance_preset = preset;
                     set_active_preset(preset);
                     let _ = prefs.save();
-                    status = format!("Graphics Preset set to {} (saved).", preset.name());
+                    let name = i18n::localize(preset.name());
+                    status = i18n::pick(
+                        format!("Graphics Preset set to {name} (saved)."),
+                        format!("Режим графики: {name} (сохранено)."),
+                    );
                 }
             }
 
@@ -1542,9 +1567,15 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     prefs.touch_mode = mode;
                     let _ = prefs.save();
                     status = if mode == crate::touch::TouchMode::Off {
-                        "Touch controls DISABLED (Gamepad mode active).".into()
+                        i18n::localize("Touch controls DISABLED (Gamepad mode active).").into()
                     } else {
-                        format!("Controls mode set to {} (saved).", label)
+                        {
+                            let name = i18n::localize(label);
+                            i18n::pick(
+                                format!("Controls mode set to {name} (saved)."),
+                                format!("Режим управления: {name} (сохранено)."),
+                            )
+                        }
                     };
                 }
             }

@@ -28,7 +28,7 @@ const PAD_D_DOWN: u32 = 0x0002;
 /// Pick the display language the same way the Java side does: the launcher
 /// stores the chosen language in this environment variable.
 pub fn is_ru() -> bool {
-    std::env::var("LOOKING_GLASS_ANDROID_LANG").is_ok_and(|lang| lang == "ru")
+    super::i18n::is_ru()
 }
 
 /// Pick the English or Russian text.
