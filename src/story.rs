@@ -814,16 +814,78 @@ impl Story {
     }
 }
 
+// Adapt only the displayed subtitle; archive text and dialogue timing stay intact.
+fn subtitle_text(text: &str, supports: impl Fn(char) -> bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c.is_whitespace() || supports(c) {
+            out.push(c);
+        } else {
+            let replacement = match c {
+                'ä' => "ae", 'ö' => "oe", 'ü' => "ue",
+                'Ä' => "AE", 'Ö' => "OE", 'Ü' => "UE", 'ß' => "ss",
+                _ => deunicode::deunicode_char(c).unwrap_or("?"),
+            };
+            for replacement in replacement.chars() {
+                out.push(if replacement.is_whitespace() || supports(replacement) {
+                    replacement
+                } else {'?'});
+            }
+        }
+    }
+    out
+}
+
+struct SubtitleLayout {
+    baseline: f32,
+    step: f32,
+    height: f32,
+}
+
+// All coordinates are relative to the dialog. Ink bounds are scaled atlas bounds,
+// not the padded font-cell height. Keep the old visible text start after doubling.
+fn subtitle_layout(s: f32, size: f32, ink: (f32, f32), header: (f32, f32),
+    rows: usize, first_ink_top: f32, last_bottom: f32) -> SubtitleLayout {
+    let visible_height = (ink.1 - ink.0).max(0.);
+    let old_top = 49. * s - size * 0.5 + ink.0 * 0.5;
+    let first_top = old_top.max(header.1 + 4. * s);
+    let baseline = first_top - ink.0 + size;
+    let gap = (size + 4. * s - visible_height).max(0.) / 3.;
+    let step = visible_height + gap;
+    let bottom = if rows == 0 {header.1} else {
+        baseline - size + (rows - 1) as f32 * step + last_bottom
+    };
+    let padding = if rows == 0 {header.0.max(0.)} else {
+        (baseline - size + first_ink_top).max(0.)
+    };
+    SubtitleLayout {baseline, step, height: bottom + padding}
+}
+
 pub(crate) fn draw_subtitle(text: &str, speaker_name: &str, use_key: &str, elapsed: f32, duration: f32, ui: &crate::ui::Ui) {
         let s = crate::ui::overlay_scale();
         let width = (screen_width() - 180. * s).clamp(220. * s, 850. * s);
-        let font = (screen_height() / (32. * s)).clamp(16., 23.) * s;
-        let rows = wrap(text, width - 36. * s, |s| ui.body.width(s, font));
+        let font = (screen_height() / (32. * s)).clamp(16., 23.) * s * 2.;
+        let subtitle_font = &ui.body;
+        let text = subtitle_text(text, |c| subtitle_font.supports_character(c));
+        let rows = wrap(&text, width - 36. * s, |s| subtitle_font.width(s, font));
+        let ink = subtitle_font.visible_vertical_bounds(&text, font).unwrap_or((0., font));
+        let hint = format!("{use_key}  next line");
+        let speaker_ink = ui.font.visible_vertical_bounds(speaker_name, 20. * s)
+            .unwrap_or((0., 20. * s));
+        let hint_ink = ui.body.visible_vertical_bounds(&hint, 16. * s)
+            .unwrap_or((0., 16. * s));
+        let header = ((5. * s + speaker_ink.0).min(8. * s + hint_ink.0),
+            (5. * s + speaker_ink.1 + 1.).max(8. * s + hint_ink.1));
         // Paginate unusually long lines instead of obscuring the play area.
         let pages = rows.len().div_ceil(3).max(1);
         let page = ((elapsed / duration.max(1.) * pages as f32) as usize).min(pages - 1);
         let rows = &rows[(page * 3).min(rows.len())..((page + 1) * 3).min(rows.len())];
-        let height = 46. * s + rows.len() as f32 * (font + 4. * s);
+        let first_ink_top = rows.first().and_then(|row|
+            subtitle_font.visible_vertical_bounds(row, font)).map_or(ink.0, |r| r.0);
+        let last_bottom = rows.last().and_then(|row|
+            subtitle_font.visible_vertical_bounds(row, font)).map_or(ink.1, |r| r.1);
+        let layout = subtitle_layout(s, font, ink, header, rows.len(), first_ink_top, last_bottom);
+        let height = layout.height;
         let x = (screen_width() - width) / 2.;
         let y = screen_height() - 95. * s - height;
         ui.dialog(Rect::new(x, y, width, height));
@@ -834,7 +896,6 @@ pub(crate) fn draw_subtitle(text: &str, speaker_name: &str, use_key: &str, elaps
             20. * s,
             Color::from_hex(0xf3d6a0),
         );
-        let hint = format!("{use_key}  next line");
         ui.body.left(
             &hint,
             x + width - ui.body.width(&hint, 16. * s) - 18. * s,
@@ -843,10 +904,10 @@ pub(crate) fn draw_subtitle(text: &str, speaker_name: &str, use_key: &str, elaps
             WHITE,
         );
         for (i, row) in rows.iter().enumerate() {
-            ui.body.left(
+            subtitle_font.left(
                 row,
                 x + 18. * s,
-                y + 49. * s + i as f32 * (font + 4. * s),
+                y + layout.baseline + i as f32 * layout.step,
                 font,
                 WHITE,
             );
@@ -1140,6 +1201,88 @@ pub fn check(assets: &mut Assets) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn assert_subtitle_fits(s: f32, ink: (f32, f32), header: (f32, f32),
+        rows: usize, first_top: f32, last_bottom: f32) {
+        const EPSILON: f32 = 0.001;
+        let size = 40. * s;
+        let layout = subtitle_layout(s, size, ink, header, rows, first_top, last_bottom);
+        assert!([layout.baseline, layout.step, layout.height].into_iter().all(f32::is_finite));
+        assert!(layout.height > 0. && layout.step > 0.);
+        assert!(header.0 >= -EPSILON && header.1 <= layout.height + EPSILON);
+        let mut previous_bottom = header.1;
+        for row in 0..rows {
+            let origin = layout.baseline - size + row as f32 * layout.step;
+            let top = origin + if row == 0 { first_top } else { ink.0 };
+            let bottom = origin + if row + 1 == rows { last_bottom } else { ink.1 };
+            assert!(top >= previous_bottom - EPSILON,
+                "row {row} overlaps header or preceding row: {top} < {previous_bottom}");
+            assert!(top >= -EPSILON && bottom <= layout.height + EPSILON);
+            assert!(bottom > top);
+            previous_bottom = bottom;
+        }
+    }
+    #[test]
+    fn subtitle_layout_keeps_header_and_rows_separate_at_each_scale() {
+        for s in [0.75, 1., 2.] {
+            let ink = (4. * s, 24. * s);
+            for rows in 0..=3 {
+                assert_subtitle_fits(s, ink, (6. * s, 20. * s), rows, ink.0, ink.1);
+            }
+        }
+    }
+    #[test]
+    fn subtitle_layout_contains_accents_descenders_and_different_line_bounds() {
+        for s in [0.75, 1., 2.] {
+            for (top, bottom) in [(1., 24.), (4., 30.)] {
+                let ink = (top * s, bottom * s);
+                for rows in 1..=3 {
+                    // First/last lines need not contain the text's tallest accent/descender.
+                    assert_subtitle_fits(s, ink, (6. * s, 20. * s), rows,
+                        (top + 2.) * s, (bottom - 3.) * s);
+                }
+            }
+        }
+    }
+    #[test]
+    fn subtitle_layout_clears_tall_header_and_handles_empty_text() {
+        for s in [0.75, 1., 2.] {
+            for rows in 0..=3 {
+                assert_subtitle_fits(s, (4. * s, 24. * s), (6. * s, 36. * s),
+                    rows, 4. * s, 24. * s);
+            }
+        }
+    }
+    #[test]
+    fn subtitle_keeps_supported_characters_and_whitespace() {
+        let text = "ASCII  äöü ÄÖÜ ß café\n";
+        assert_eq!(subtitle_text(text, |c| c.is_ascii() || "äöüÄÖÜßé".contains(c)), text);
+    }
+    #[test]
+    fn subtitle_transliterates_missing_letters() {
+        assert_eq!(subtitle_text("ä ö ü Ä Ö Ü ß éèáñ", |c| c.is_ascii()),
+            "ae oe ue AE OE UE ss eean");
+    }
+    #[test]
+    fn subtitle_replaces_unknown_and_unsupported_output() {
+        assert_eq!(subtitle_text("\u{10ffff}", |c| c.is_ascii()), "?");
+        assert_eq!(subtitle_text("ß", |c| c == '?'), "??");
+    }
+    #[test]
+    fn subtitle_wrap_measures_expanded_text_without_losing_words() {
+        let original = "a ß b";
+        let expanded = subtitle_text(original, |c| c.is_ascii());
+        let measure = |s: &str| s.chars().count() as f32;
+        assert_eq!(wrap(original, 3., measure), vec!["a ß", "b"]);
+        let rows = wrap(&expanded, 3., measure);
+        assert_eq!(rows, vec!["a", "ss", "b"]);
+        assert_eq!(rows.join(" "), expanded);
+        let translated = subtitle_text(
+            "Grüße für alle Gäste auf einer längeren Reise durch die großen Räume", |c| c.is_ascii());
+        let rows = wrap(&translated, 18., measure);
+        assert!(rows.len() > 3, "long translations may require multiple pages");
+        assert!(rows.iter().all(|row| measure(row) <= 18.));
+        assert_eq!(rows.join(" "), translated);
+    }
     #[test]
     fn new_conditional_speech_requires_an_explicit_stable_branch() {
         let text = "void dialog() { $fakeplayer.playdialog(\"sound/character/fixture_a.wav\"); if (ready) { $bill.playdialog(\"sound/character/fixture_b.wav\"); } }";

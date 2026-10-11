@@ -18,6 +18,7 @@ rodio = { version = "=0.20.1", default-features = false, features = ["wav", "sym
 hound = "=3.5.1"
 # Symphonia metadata's latest encoding_rs patch requires Rust 1.88.
 encoding_rs = "=0.8.35"
+deunicode = "=1.6.2"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.145", features = ["float_roundtrip"] }
 # Enable serialization on the same math types used by Macroquad.
