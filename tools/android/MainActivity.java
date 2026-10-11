@@ -351,6 +351,10 @@ public class MainActivity extends Activity {
     private static final String BUILD_COMMIT_SHA = "__BUILD_COMMIT_SHA__";
     private static final String BUILD_VERSION = "__BUILD_VERSION__";
     private static boolean startupDialogShown = false;
+    private static final String LAUNCHER_PREFS = "looking_glass_launcher";
+    private static final String KEY_LAUNCHER_LANGUAGE = "launcher_language";
+    /** "auto" follows the system language; "en" and "ru" force the launcher language. */
+    private static volatile String launcherLanguage = "auto";
 
     private QuadSurface view;
     private File storageRoot;
@@ -407,6 +411,7 @@ public class MainActivity extends Activity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         currentInstance = this;
+        loadLauncherLanguage();
         installUncaughtExceptionHandler();
         try {
             // Route the hardware volume buttons to media volume (game audio) at all times.
@@ -821,7 +826,39 @@ public class MainActivity extends Activity {
                 });
     }
 
+    private void loadLauncherLanguage() {
+        try {
+            String saved =
+                    getSharedPreferences(LAUNCHER_PREFS, MODE_PRIVATE)
+                            .getString(KEY_LAUNCHER_LANGUAGE, "auto");
+            launcherLanguage = "en".equals(saved) || "ru".equals(saved) ? saved : "auto";
+        } catch (Throwable ignored) {
+            launcherLanguage = "auto";
+        }
+    }
+
+    private void setLauncherLanguage(String value) {
+        launcherLanguage = value;
+        try {
+            getSharedPreferences(LAUNCHER_PREFS, MODE_PRIVATE)
+                    .edit()
+                    .putString(KEY_LAUNCHER_LANGUAGE, value)
+                    .apply();
+        } catch (Throwable ignored) {
+        }
+        try {
+            Os.setenv("LOOKING_GLASS_ANDROID_LANG", isRussianLocale() ? "ru" : "en", true);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static boolean isRussianLocale() {
+        if ("ru".equals(launcherLanguage)) {
+            return true;
+        }
+        if ("en".equals(launcherLanguage)) {
+            return false;
+        }
         try {
             String lang = Locale.getDefault().getLanguage();
             if (lang == null) {
@@ -1090,6 +1127,45 @@ public class MainActivity extends Activity {
 
             final AlertDialog dialog =
                     new AlertDialog.Builder(this).setView(scroll).setCancelable(true).create();
+
+            // Launcher language: Auto follows the system; English and Русский force it.
+            TextView langLabel = new TextView(this);
+            langLabel.setText(ru ? "Язык лаунчера" : "Launcher language");
+            langLabel.setTextColor(Color.rgb(180, 165, 148));
+            langLabel.setTextSize(12f);
+            langLabel.setPadding(0, 14, 0, 4);
+            card.addView(langLabel);
+
+            LinearLayout langRow = new LinearLayout(this);
+            langRow.setOrientation(LinearLayout.HORIZONTAL);
+            final String[] langCodes = {"auto", "en", "ru"};
+            final String[] langNames = {ru ? "Авто" : "Auto", "English", "Русский"};
+            for (int i = 0; i < langCodes.length; i++) {
+                final String code = langCodes[i];
+                final boolean selected = code.equals(launcherLanguage);
+                Button langBtn =
+                        createStyledDialogButton(
+                                (selected ? "✓ " : "") + langNames[i],
+                                selected ? Color.rgb(39, 110, 54) : Color.rgb(60, 50, 70),
+                                selected ? Color.rgb(130, 224, 170) : Color.rgb(120, 105, 140),
+                                new View.OnClickListener() {
+                                    @Override
+                                    public void onClick(View v) {
+                                        if (code.equals(launcherLanguage)) {
+                                            return;
+                                        }
+                                        setLauncherLanguage(code);
+                                        dialog.dismiss();
+                                        showCreditsDialogInternal();
+                                    }
+                                });
+                LinearLayout.LayoutParams langBtnParams =
+                        new LinearLayout.LayoutParams(
+                                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                langBtnParams.setMargins(i == 0 ? 0 : 6, 0, 0, 0);
+                langRow.addView(langBtn, langBtnParams);
+            }
+            card.addView(langRow, rowParams);
 
             LinearLayout row2 = new LinearLayout(this);
             row2.setOrientation(LinearLayout.HORIZONTAL);

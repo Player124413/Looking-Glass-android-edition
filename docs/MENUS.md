@@ -14,7 +14,7 @@ Windows Xbox/XInput controllers work throughout the menu: D-pad or left stick to
 
 **Tab** opens the 39 story-ordered visits from either the main menu (including startup) or gameplay, including separate return entrances. Use the **mouse wheel** to scroll three rows per notch, **click** a row to select it, then **double-click** that row or click **Begin** to start a fresh visit with its campaign loadout. Rows stay still when selected with the mouse. Scrolling is bounded at both ends and keeps the chosen visit visible. Click the difficulty label to cycle the four difficulties; click **Return** (or press Tab/Escape) to go back to the screen that opened the chooser without loading a chapter. From the main menu, this returns to the main menu; from gameplay, it returns to the game.
 
-On a controller, **Back/View** opens chapters, **D-pad / left stick** browses, **Y** changes difficulty, **A** begins the selected visit and **B** returns.
+On a controller, the chapter chooser has no default button (Back/View was unbound in controller layout revision 2); assign **Choose level** in Controls if you want it. Once open, **D-pad / left stick** browses, **Y** changes difficulty, **A** begins the selected visit and **B** returns.
 
 **Up/Down**, **Home/End**, **Enter**, **D**, and **Tab/Escape** retain their keyboard functions. The parchment, original lettering and arrow markers use the same scaled coordinates for drawing and clicking. Mouse input while the chooser is open does not turn Alice, cycle weapons or fire attacks. Chapter starts keep the existing fresh-visit behavior; they do not restore a saved campaign.
 
