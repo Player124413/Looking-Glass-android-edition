@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn actions_cover_every_binding_once() {
         assert_eq!(ACTIONS.len(), BINDINGS.len());
-        for (key, _) in BINDINGS {
+        for (_, key) in BINDINGS {
             let count = ACTIONS.iter().filter(|(k, _, _)| k == key).count();
             assert_eq!(count, 1, "binding {key} must appear exactly once");
         }
