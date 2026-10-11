@@ -865,7 +865,7 @@ pub(crate) fn draw_subtitle(text: &str, speaker_name: &str, use_key: &str, elaps
         let s = crate::ui::overlay_scale();
         let width = (screen_width() - 180. * s).clamp(220. * s, 850. * s);
         let font = (screen_height() / (32. * s)).clamp(16., 23.) * s * 2.;
-        let subtitle_font = &ui.body;
+        let subtitle_font = &ui.font; // Original extended Asrafel atlas.
         let text = subtitle_text(text, |c| subtitle_font.supports_character(c));
         let rows = wrap(&text, width - 36. * s, |s| subtitle_font.width(s, font));
         let ink = subtitle_font.visible_vertical_bounds(&text, font).unwrap_or((0., font));
