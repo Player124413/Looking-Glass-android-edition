@@ -1,5 +1,8 @@
 # Looking Glass — American McGee's Alice Re-Remaster
 
+# FORK PT-BR COM VORPAL-FIX | VERSÃO WINDOWS NO BRANCH PC
+
+---
 **Play the whole game, from the opening to the final boss, ending and credits.**
 All **39 campaign visits**, including return visits, are playable in this
 experimental Windows preview.
