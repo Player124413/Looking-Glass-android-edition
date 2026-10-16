@@ -20,8 +20,8 @@ pub const FIXED_DT: f32 = 1. / 120.;
 pub const WALK_SPEED: f32 = 104.;
 // Desktop sprint speed, unchanged from the Windows preview.
 pub const RUN_SPEED: f32 = 320.;
-// Android players found the sprint too fast; about 19% slower than the desktop sprint.
-pub const ANDROID_RUN_SPEED: f32 = 260.;
+// Android players found the sprint too fast; about 37% slower than the desktop sprint.
+pub const ANDROID_RUN_SPEED: f32 = 200.;
 const STEP_HEIGHT: f32 = 18.;
 pub const GRAVITY: f32 = 800.;
 // Local Player jump event: half gravity in the ordinary, unpowered state.
