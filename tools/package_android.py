@@ -100,7 +100,7 @@ MANIFEST_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
-    <application
+    <application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
         android:label="{label}"
         android:hasCode="true"
         android:allowBackup="true"
@@ -279,6 +279,23 @@ def generate_layout(out_dir: pathlib.Path) -> dict[str, pathlib.Path]:
     activity_path.write_text(main_java, encoding="utf-8", newline="\n")
     quad_native_path.write_text(quad_java, encoding="utf-8", newline="\n")
     res_main_path.write_text(RES_MAIN_XML, encoding="utf-8", newline="\n")
+    # [icon-patch] copia/gera ícones mipmap-* para res/
+    import shutil as _sh
+    _icon_src = ROOT / 'target' / 'android-res'
+    _icon_png = ROOT / 'private' / 'icon.png'
+    if not _icon_src.exists() and _icon_png.exists():
+        from PIL import Image as _Img
+        _im = _Img.open(_icon_png).convert('RGBA')
+        for _dpi, _px in {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}.items():
+            _d = _icon_src / f'mipmap-{_dpi}'
+            _d.mkdir(parents=True, exist_ok=True)
+            _r = _im.resize((_px, _px), _Img.LANCZOS)
+            _r.save(_d / 'ic_launcher.png')
+            _r.save(_d / 'ic_launcher_round.png')
+    if not _icon_src.exists():
+        raise SystemExit('Ícones não encontrados: rode tools/move_icon.py')
+    for _m in _icon_src.glob('mipmap-*'):
+        _sh.copytree(_m, res_layout_dir.parent / _m.name, dirs_exist_ok=True)
     install_path.write_text(
         INSTALL_ANDROID_TEXT.format(**meta),
         encoding="utf-8",
