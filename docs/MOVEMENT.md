@@ -13,7 +13,8 @@ for Alice's walking clips (51.3-51.7 units per cycle). The original 210-unit
 prototype target below made those clips play about four times too fast.
 Animation continues to follow actual collision-resolved travel, keeping the
 body and feet in step. Slow analog input animates down to 1 unit/s. Running
-remains 320 units/s; swimming, acceleration, jump impulse and collision handling
+remains 320 units/s on desktop; the Android build runs at 200 units/s
+(`ANDROID_RUN_SPEED` in `src/movement.rs`). Swimming, acceleration, jump impulse and collision handling
 are unchanged. Walking jumps cover less horizontal distance; use the run
 modifier for longer jumps.
 

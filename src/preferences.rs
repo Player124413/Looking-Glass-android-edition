@@ -59,6 +59,10 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("Blunderbuss", "9"),
     ("Pocket Watch", "0"),
 ];
+/// Controller layout revision. Revision 2 stopped the Back/View button from opening the
+/// chapter chooser by default, because a fresh visit from there sends players back into
+/// earlier areas. Older files are migrated once on load.
+pub const PAD_LAYOUT_VERSION: u32 = 2;
 fn pad_defaults() -> Vec<String> {
     BINDINGS
         .iter()
@@ -75,7 +79,6 @@ fn pad_defaults() -> Vec<String> {
                 "Wheel Down" => "RB",
                 "V" => "R Stick",
                 "I" => "Y",
-                "Tab" => "Back",
                 "H" => "D Down",
                 "P" => "D Right",
                 "R" => "D Left",
@@ -101,6 +104,9 @@ pub struct Preferences {
     pub pad_sensitivity: f32,
     pub pad_deadzone: f32,
     pub invert_pad: bool,
+    /// Missing in files written before controller layout revisions, so it defaults to 0.
+    #[serde(default)]
+    pub pad_layout_version: u32,
     pub touch_mode: crate::touch::TouchMode,
     pub touch_sensitivity: f32,
     pub invert_touch: bool,
@@ -126,6 +132,7 @@ impl Default for Preferences {
             pad_sensitivity: 1.,
             pad_deadzone: 0.24,
             invert_pad: false,
+            pad_layout_version: PAD_LAYOUT_VERSION,
             touch_mode: crate::touch::TouchMode::Auto,
             touch_sensitivity: 1.,
             invert_touch: false,
@@ -228,6 +235,16 @@ impl Preferences {
             } else {
                 default
             });
+        }
+        if p.pad_layout_version < 2 {
+            // Only the default Back/View -> Choose level shortcut is removed. Any other
+            // controller choice the player made is kept.
+            for (i, (_, key)) in BINDINGS.iter().enumerate() {
+                if *key == "Tab" && p.pad_bindings[i] == "Back" {
+                    p.pad_bindings[i] = "None".into();
+                }
+            }
+            p.pad_layout_version = PAD_LAYOUT_VERSION;
         }
         p.validate()?;
         Ok(p)
@@ -366,6 +383,28 @@ mod tests {
             Preferences::parse(&serde_json::to_vec(&p).unwrap()).unwrap(),
             p
         );
+    }
+    #[test]
+    fn back_button_no_longer_opens_chapters_by_default_and_old_files_migrate() {
+        let row = BINDINGS.iter().position(|(_, key)| *key == "Tab").unwrap();
+        assert_eq!(Preferences::default().pad_bindings[row], "None");
+        assert_eq!(Preferences::default().pad_layout_version, PAD_LAYOUT_VERSION);
+        // A file from before revision 2 that still has the old Back/View shortcut.
+        let mut old = Preferences {
+            pad_layout_version: 0,
+            ..Default::default()
+        };
+        old.pad_bindings[row] = "Back".into();
+        old.pad_bindings[9] = "None".into();
+        let migrated = Preferences::parse(&serde_json::to_vec(&old).unwrap()).unwrap();
+        assert_eq!(migrated.pad_bindings[row], "None");
+        assert_eq!(migrated.pad_bindings[14], "Y");
+        assert_eq!(migrated.pad_layout_version, PAD_LAYOUT_VERSION);
+        // A current file keeps a Back binding the player chose on purpose.
+        let mut chosen = Preferences::default();
+        chosen.pad_bindings[row] = "Back".into();
+        let kept = Preferences::parse(&serde_json::to_vec(&chosen).unwrap()).unwrap();
+        assert_eq!(kept.pad_bindings[row], "Back");
     }
     #[test]
     fn touch_and_performance_preferences_validate_and_roundtrip() {

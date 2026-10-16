@@ -5,10 +5,23 @@ use crate::water::Immersion;
 use macroquad::prelude::vec3;
 use macroquad::prelude::{Vec2, Vec3};
 
+/// Sprint speed for this build: the Android port runs a little slower than desktop.
+pub fn run_speed() -> f32 {
+    if cfg!(target_os = "android") {
+        ANDROID_RUN_SPEED
+    } else {
+        RUN_SPEED
+    }
+}
+
 pub const EYE_HEIGHT: f32 = 48.;
 pub const FIXED_DT: f32 = 1. / 120.;
 // Brisk walk: about two authored strides per second (51.3-51.7 units each).
 pub const WALK_SPEED: f32 = 104.;
+// Desktop sprint speed, unchanged from the Windows preview.
+pub const RUN_SPEED: f32 = 320.;
+// Android players found the sprint too fast; about 37% slower than the desktop sprint.
+pub const ANDROID_RUN_SPEED: f32 = 200.;
 const STEP_HEIGHT: f32 = 18.;
 pub const GRAVITY: f32 = 800.;
 // Local Player jump event: half gravity in the ordinary, unpowered state.
@@ -471,7 +484,7 @@ impl Player {
         let jump = input.jump && self.grounded;
         let wish = input.wish.clamp_length_max(1.);
         let target = wish
-            * if input.run { 320. } else { WALK_SPEED }
+            * if input.run { run_speed() } else { WALK_SPEED }
             * if self.tea { 2. } else { 1. }
             * if self.immersion.level > 0 { 0.7 } else { 1. };
         let mut horizontal = self.velocity.truncate();
@@ -895,8 +908,11 @@ mod tests {
     #[test]
     fn brisk_walking_speed_and_running_are_stable() {
         let world = floor();
-        for (run, fraction, expected) in [(false, 1., 104.), (false, 0.125, 13.), (true, 1., 320.)]
-        {
+        for (run, fraction, expected) in [
+            (false, 1., 104.),
+            (false, 0.125, 13.),
+            (true, 1., run_speed()),
+        ] {
             let mut p = Player::new(Vec3::Z * 0.04);
             let input = Controls {
                 wish: Vec2::X * fraction,

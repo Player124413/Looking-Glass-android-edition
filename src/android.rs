@@ -9,6 +9,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod controller_map;
+mod i18n;
+
 pub const PACKAGE_ID: &str = "com.lookingglass.alice";
 
 /// Initialize the Android NDK context (`JavaVM` + `Activity` handle) required by
@@ -1164,16 +1167,31 @@ pub async fn wait_for_data(initial: PathBuf) -> Result<Assets> {
 }
 
 /// Draws launcher text, shrinking it (never growing it) so it fits into `max_w` pixels.
+/// In Russian mode the text is translated and drawn with the Cyrillic system font.
 fn draw_text_fit(text: &str, x: f32, y: f32, size: f32, max_w: f32, color: Color) {
+    let text = i18n::localize(text);
+    let font = i18n::launcher_font();
     let mut fs = size.round().max(8.);
-    let width = measure_text(text, None, fs as u16, 1.0).width;
+    let width = measure_text(&text, font.as_ref(), fs as u16, 1.0).width;
     if width > max_w && width > 0. {
         fs = (fs * max_w / width).floor().max(8.);
     }
-    draw_text(text, x, y, fs, color);
+    draw_text_ex(
+        &text,
+        x,
+        y,
+        TextParams {
+            font: font.as_ref(),
+            font_size: fs as u16,
+            font_scale: 1.0,
+            color,
+            ..Default::default()
+        },
+    );
 }
 
 async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
+    i18n::ensure_launcher_font();
     let root = storage_root();
     prepare_directories(&root);
     clear_import_status(&root);
@@ -1197,6 +1215,8 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
     let mut browsing = false;
     let mut editing_touch = false;
     let mut touch_editor = crate::touch::TouchEditor::default();
+    let mut editing_controller = false;
+    let mut controller_editor = controller_map::ControllerEditor::default();
     let mut browse_dir = initial_browse_dir(&root);
     let mut browse_scroll = 0usize;
     let mut frame = 0u32;
@@ -1214,10 +1234,32 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
         if editing_touch {
             if touch_editor.update_and_draw(&mut prefs) {
                 editing_touch = false;
-                status = format!(
-                    "Touch controls saved (Mode: {}).",
-                    prefs.touch_mode.name()
+                let mode = i18n::localize(prefs.touch_mode.name());
+                status = i18n::pick(
+                    format!("Touch controls saved (Mode: {mode})."),
+                    format!("Сенсорное управление сохранено (режим: {mode})."),
                 );
+            }
+            next_frame().await;
+            continue;
+        }
+
+        if editing_controller {
+            match controller_editor.update_and_draw(&mut prefs) {
+                controller_map::Outcome::Continue => {}
+                controller_map::Outcome::Saved(message) => {
+                    editing_controller = false;
+                    status = message;
+                }
+                controller_map::Outcome::Cancelled => {
+                    editing_controller = false;
+                    status = controller_map::tr(
+                        controller_map::is_ru(),
+                        "Controller changes discarded.",
+                        "Изменения геймпада отменены.",
+                    )
+                    .into();
+                }
             }
             next_frame().await;
             continue;
@@ -1292,7 +1334,18 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
         let tg_btn = Rect::new(panel.right() - 568. * s, top_btn_y, 250. * s, 38. * s);
         let upd_btn = Rect::new(panel.right() - 308. * s, top_btn_y, 170. * s, 38. * s);
         let info_btn = Rect::new(panel.right() - 128. * s, top_btn_y, 110. * s, 38. * s);
+        let ctrl_btn = Rect::new(panel.x + 26. * s, top_btn_y, 230. * s, 38. * s);
         for (rect, label, fill, border) in [
+            (
+                ctrl_btn,
+                controller_map::tr(
+                    controller_map::is_ru(),
+                    "Controller Setup",
+                    "Настройка геймпада",
+                ),
+                Color::from_hex(0x1f618d),
+                Color::from_hex(0x85c1e9),
+            ),
             (
                 tg_btn,
                 "Port by Player1444 (TG)",
@@ -1331,6 +1384,9 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
             status = "Checking for updates on GitHub...".into();
         } else if pointer_pressed && info_btn.contains(pointer_pos) {
             let _ = show_credits_dialog();
+        } else if pointer_pressed && ctrl_btn.contains(pointer_pos) {
+            controller_editor.start(&prefs);
+            editing_controller = true;
         }
 
         y += 30. * s;
@@ -1405,7 +1461,11 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     prefs.fps_limit = mode;
                     set_active_fps_limit(mode);
                     let _ = prefs.save();
-                    status = format!("FPS Limit set to {} (saved).", mode.name());
+                    let name = i18n::localize(mode.name());
+                    status = i18n::pick(
+                        format!("FPS Limit set to {name} (saved)."),
+                        format!("Лимит FPS: {name} (сохранено)."),
+                    );
                 }
             }
 
@@ -1449,7 +1509,11 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     prefs.performance_preset = preset;
                     set_active_preset(preset);
                     let _ = prefs.save();
-                    status = format!("Graphics Preset set to {} (saved).", preset.name());
+                    let name = i18n::localize(preset.name());
+                    status = i18n::pick(
+                        format!("Graphics Preset set to {name} (saved)."),
+                        format!("Режим графики: {name} (сохранено)."),
+                    );
                 }
             }
 
@@ -1503,9 +1567,15 @@ async fn wait_for_data_inner(initial: PathBuf) -> Result<Assets> {
                     prefs.touch_mode = mode;
                     let _ = prefs.save();
                     status = if mode == crate::touch::TouchMode::Off {
-                        "Touch controls DISABLED (Gamepad mode active).".into()
+                        i18n::localize("Touch controls DISABLED (Gamepad mode active).").into()
                     } else {
-                        format!("Controls mode set to {} (saved).", label)
+                        {
+                            let name = i18n::localize(label);
+                            i18n::pick(
+                                format!("Controls mode set to {name} (saved)."),
+                                format!("Режим управления: {name} (сохранено)."),
+                            )
+                        }
                     };
                 }
             }
