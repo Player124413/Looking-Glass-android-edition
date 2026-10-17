@@ -31,6 +31,19 @@ GAMEPLAY_MEDIA = {
     "docs/media/gameplay/pale-realm.mp4": "864262da7717b8e193be1f6f6f4f994de90b1781b8c804da62869f678b9102b0",
     "docs/media/gameplay/pale-realm.gif": "56e0ef4b94b96493212ac2fe39369b458960d6c2212c2bf512246e5cad74d5fe",
 }
+# Launcher icons (see tools/android/res/ICON-NOTICE.md). Exact hashes only.
+ANDROID_ICONS = {
+    "tools/android/res/mipmap-hdpi/ic_launcher.png": "2a8f521c841763f1fd94fbb6dbb2bca80d58ac27d6300a3ab583e105da6be674",
+    "tools/android/res/mipmap-hdpi/ic_launcher_round.png": "2a8f521c841763f1fd94fbb6dbb2bca80d58ac27d6300a3ab583e105da6be674",
+    "tools/android/res/mipmap-mdpi/ic_launcher.png": "b00559e2271a07f1e58a434651be9e64d490ce2ac318f0334eea4b490ccd9ec3",
+    "tools/android/res/mipmap-mdpi/ic_launcher_round.png": "b00559e2271a07f1e58a434651be9e64d490ce2ac318f0334eea4b490ccd9ec3",
+    "tools/android/res/mipmap-xhdpi/ic_launcher.png": "4e6ef9e6d7a8c1c3620c4f3f482faa56ca818172f88d73b31809875d60595812",
+    "tools/android/res/mipmap-xhdpi/ic_launcher_round.png": "4e6ef9e6d7a8c1c3620c4f3f482faa56ca818172f88d73b31809875d60595812",
+    "tools/android/res/mipmap-xxhdpi/ic_launcher.png": "93e153d662885e3807d8413a943d8747a70f535fe3292dcc78a261882205a5aa",
+    "tools/android/res/mipmap-xxhdpi/ic_launcher_round.png": "93e153d662885e3807d8413a943d8747a70f535fe3292dcc78a261882205a5aa",
+    "tools/android/res/mipmap-xxxhdpi/ic_launcher.png": "56feea87b4ccf4ea2681a21276bf8c9c3bc64fcfc273ba51095becc82ef9fd38",
+    "tools/android/res/mipmap-xxxhdpi/ic_launcher_round.png": "56feea87b4ccf4ea2681a21276bf8c9c3bc64fcfc273ba51095becc82ef9fd38",
+}
 SECRET = re.compile(
     rb"(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|"
     rb"AKIA[A-Z0-9]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)"
@@ -41,7 +54,7 @@ def allowed(path):
     p = PurePosixPath(path)
     if p.is_absolute() or ".." in p.parts or "\\" in path:
         return False
-    if path in GAMEPLAY_MEDIA or path in SITE_FILES:
+    if path in GAMEPLAY_MEDIA or path in SITE_FILES or path in ANDROID_ICONS:
         return True
     if len(p.parts) == 1:
         return path in ROOT_FILES or (path.startswith("Launch") and p.suffix == ".cmd")
@@ -60,9 +73,10 @@ def audit_data(path, data):
         errors.append(f"Not an approved source path: {path}")
     if len(data) > size_limit(path):
         errors.append(f"Unexpectedly large source file: {path}")
-    if path in GAMEPLAY_MEDIA:
-        if hashlib.sha256(data).hexdigest() != GAMEPLAY_MEDIA[path]:
-            errors.append(f"Unreviewed gameplay media content: {path}")
+    reviewed = GAMEPLAY_MEDIA.get(path) or ANDROID_ICONS.get(path)
+    if reviewed:
+        if hashlib.sha256(data).hexdigest() != reviewed:
+            errors.append(f"Unreviewed media content: {path}")
     elif b"\0" in data:
         errors.append(f"Binary content in source file: {path}")
     if SECRET.search(data):

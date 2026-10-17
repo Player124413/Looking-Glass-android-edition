@@ -35,6 +35,7 @@ class AndroidPortTest(unittest.TestCase):
             self.assertTrue(files["quad_native"].is_file())
             self.assertTrue(files["res_main"].is_file())
             self.assertTrue(files["install"].is_file())
+            self.assertTrue((out_dir / "res" / "mipmap-xxxhdpi" / "ic_launcher.png").is_file())
 
             # Validate XML structure of AndroidManifest.xml
             root = ET.fromstring(files["manifest"].read_text(encoding="utf-8"))
