@@ -76,7 +76,7 @@ class AndroidPortTest(unittest.TestCase):
             self.assertIn("public void checkForUpdates()", java_src)
             self.assertIn("public void showCreditsDialog()", java_src)
             self.assertNotIn("__BUILD_COMMIT_SHA__", java_src)
-            self.assertTrue(len(package_android.FIXED_SIGNING_KEYSTORE_B64) > 1000)
+            self.assertFalse(hasattr(package_android, "FIXED_SIGNING_KEYSTORE_B64"))
 
             manifest_xml = files["manifest"].read_text(encoding="utf-8")
             self.assertIn("android.permission.INTERNET", manifest_xml)
