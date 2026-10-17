@@ -188,3 +188,9 @@ EA and the respective rights holders retain all rights in the original game,
 its assets and trademarks. The project hosts no playable original game-data
 packages; published gameplay footage is described separately in the
 [rights, ownership and distribution notice](LEGAL.md).
+
+
+<!-- android-br -->
+## Android — Português (Brasil)
+
+A branch `android-br` reúne os ajustes Android e de localização pt-BR. O APK não inclui os arquivos originais do jogo; forneça os dados do jogo pelo fluxo de instalação do aplicativo.

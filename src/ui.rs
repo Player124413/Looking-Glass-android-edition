@@ -49,6 +49,21 @@ pub struct BitmapFont {
     glyphs: Vec<Rect>,
     height: f32,
 }
+
+fn font_character(c: char) -> char {
+    match c {
+        '’' | '‘' => '\'',
+        '“' | '”' => '"',
+        '—' | '–' => '-',
+        _ => c,
+    }
+}
+
+fn direct_glyph_index(indices: &[i32], c: char) -> Option<usize> {
+    indices.get(font_character(c) as usize).copied()
+        .filter(|&i| i >= 0).map(|i| i as usize)
+}
+
 impl BitmapFont {
     pub fn load(assets: &mut Assets, name: &str) -> Result<Self> {
         let tokens = bsp::tokens(&String::from_utf8_lossy(
@@ -98,8 +113,13 @@ impl BitmapFont {
                 .all(|&i| i == -1 || (i >= 0 && (i as usize) < glyphs.len())),
             "Invalid glyph reference"
         );
+        let atlas_path = if name == "asrafel" && assets.contains("gfx/fonts/asrafel.tga") {
+        "gfx/fonts/asrafel.tga".to_owned()
+        } else {
+    format!("gfx/2d/fonts/{name}.tga")
+        };
         Ok(Self {
-            texture: load_texture(assets, &format!("gfx/2d/fonts/{name}.tga"))?,
+            texture: load_texture(assets, &atlas_path)?,
             indices,
             glyphs,
             height: tokens
@@ -127,6 +147,19 @@ impl BitmapFont {
         } else {
             self.glyphs[i as usize]
         }
+    }
+    pub(crate) fn supports_character(&self, c: char) -> bool {
+        direct_glyph_index(&self.indices, c).is_some()
+    }
+    pub(crate) fn visible_vertical_bounds(&self, text: &str, size: f32) -> Option<(f32, f32)> {
+        let scale = size / self.height;
+        text.chars()
+            .map(|c| self.glyph(c))
+            .filter(|g| g.w > 0. && g.h > 0.)
+            .fold(None, |acc: Option<(f32, f32)>, g| {
+                let b = g.h * scale;
+                Some(acc.map_or((0., b), |(t, bot)| (t, bot.max(b))))
+            })
     }
     pub fn width(&self, text: &str, size: f32) -> f32 {
         text.chars().map(|c| self.glyph(c).w).sum::<f32>() * size / self.height
