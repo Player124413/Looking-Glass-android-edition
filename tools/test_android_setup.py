@@ -16,7 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class AndroidPortTest(unittest.TestCase):
     def test_cargo_toml_and_build_rs_have_android_config(self) -> None:
         meta = package_android.load_android_metadata()
-        self.assertEqual(meta["package_name"], "com.lookingglass.alice")
+        self.assertEqual(meta["package_name"], "lookingglass.ptbr")
         self.assertEqual(meta["orientation"], "sensorLandscape")
         self.assertGreaterEqual(int(meta["min_sdk_version"]), 26)
         self.assertGreaterEqual(int(meta["target_sdk_version"]), 34)
@@ -40,7 +40,7 @@ class AndroidPortTest(unittest.TestCase):
             # Validate XML structure of AndroidManifest.xml
             root = ET.fromstring(files["manifest"].read_text(encoding="utf-8"))
             self.assertEqual(root.tag, "manifest")
-            self.assertEqual(root.attrib.get("package"), "com.lookingglass.alice")
+            self.assertEqual(root.attrib.get("package"), "lookingglass.ptbr")
 
             ns = {"android": "http://schemas.android.com/apk/res/android"}
             app = root.find("./application")
@@ -55,7 +55,7 @@ class AndroidPortTest(unittest.TestCase):
             assert activity is not None
             self.assertEqual(
                 activity.attrib.get(f"{{{ns['android']}}}name"),
-                "com.lookingglass.alice.MainActivity",
+                "lookingglass.ptbr.MainActivity",
             )
             self.assertEqual(
                 activity.attrib.get(f"{{{ns['android']}}}screenOrientation"),
@@ -114,7 +114,7 @@ class AndroidPortTest(unittest.TestCase):
             with zipfile.ZipFile(bundle) as zf:
                 names = set(zf.namelist())
                 self.assertIn("AndroidManifest.xml", names)
-                self.assertIn("java/com/lookingglass/alice/MainActivity.java", names)
+                self.assertIn("java/lookingglass/ptbr/MainActivity.java", names)
                 self.assertIn("java/quad_native/QuadNative.java", names)
                 self.assertIn("INSTALL-ANDROID.txt", names)
                 self.assertIn("docs/ANDROID.md", names)

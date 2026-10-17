@@ -1,4 +1,4 @@
-package com.lookingglass.alice;
+package lookingglass.ptbr;
 
 import android.app.Activity;
 import android.app.AlertDialog;

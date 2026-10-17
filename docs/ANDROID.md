@@ -8,7 +8,7 @@ Looking Glass does **not** include any proprietary *American McGee's Alice* game
 
 ## 1. Installing & Supplying Game Data (`base/*.pk3`)
 
-1. Install the Looking Glass Android APK (`com.lookingglass.alice`) on an Android 8.0+ (API 26+) device with OpenGL ES 2.0+ support. One APK covers 64-bit ARM (`arm64-v8a`) and 32-bit ARM (`armeabi-v7a`) phones and tablets; Android picks the right native library automatically.
+1. Install the Looking Glass Android APK (`lookingglass.ptbr`) on an Android 8.0+ (API 26+) device with OpenGL ES 2.0+ support. One APK covers 64-bit ARM (`arm64-v8a`) and 32-bit ARM (`armeabi-v7a`) phones and tablets; Android picks the right native library automatically.
 2. Launch **Looking Glass**. The built-in **Android Launcher** opens with a short, uncluttered screen:
    - **Top bar**: **Controller Setup** (opens the controller mapping screen, see below), **Port by Player1444 (TG)** (opens the Telegram channel), **Check Updates** and **Credits**.
    - **Launcher language**: `Auto` (follows the phone's language), `English` or `Русский`. The choice is saved and applies to the whole launcher: panels, buttons, status messages, the folder browser, Controller Setup, and the Credits and update dialogs. Russian text is drawn with the system font `Roboto` (present on Android), so it renders correctly. The in-game menus are still English.
@@ -16,12 +16,12 @@ Looking Glass does **not** include any proprietary *American McGee's Alice* game
    - **Graphics**: `Auto`, `Quality`, `Balanced` or `Performance`.
    - **Controls**: `Touch: Auto`, `Touch: ON` or `Touch: OFF (Pad)` (plus **Edit Touch HUD** to arrange the on-screen buttons).
    - **Sharpness**: the launcher is drawn at (almost) native screen resolution (up to 1080p on the short side) with large text; when the game starts, the render buffer switches to the game's usual 540p buffer, so gameplay performance is unchanged.
-   - **Choose Game Folder**: Opens Android's native system folder chooser (`ACTION_OPEN_DOCUMENT_TREE`). Pick your downloaded `Alice` or `base/` folder anywhere on your phone, SD card, or USB drive, and Looking Glass copies all `*.pk3` files into `/sdcard/Android/data/com.lookingglass.alice/files/base/`.
+   - **Choose Game Folder**: Opens Android's native system folder chooser (`ACTION_OPEN_DOCUMENT_TREE`). Pick your downloaded `Alice` or `base/` folder anywhere on your phone, SD card, or USB drive, and Looking Glass copies all `*.pk3` files into `/sdcard/Android/data/lookingglass.ptbr/files/base/`.
    - **Select PK3 / ZIP**: Opens Android's native file chooser (`ACTION_OPEN_DOCUMENT`) so you can select the `.pk3` files or a `.zip` archive of the game; Looking Glass copies or extracts the `.pk3` archives directly into `base/`. `.7z` / `.rar` archives are not supported - extract them first.
    - **START GAME**: Mounts the game files and starts. The game only starts when the complete set of archives is present: `pak0.pk3`, `pak1_large.pk3`, `pak2.pk3`, `pak3.pk3`, `pak4_english.pk3` and `pak5_mod.pk3`. If something is missing (for example `pak2.pk3`), the launcher lists exactly which files are missing instead of failing later in the game.
 3. You can also copy the `.pk3` files manually or via `adb`:
    ```bash
-   adb push /path/to/Alice/base/*.pk3 /sdcard/Android/data/com.lookingglass.alice/files/base/
+   adb push /path/to/Alice/base/*.pk3 /sdcard/Android/data/lookingglass.ptbr/files/base/
    ```
    Then tap **START GAME** on the launcher screen to start playing.
 
@@ -88,7 +88,7 @@ Run the packaging helper (repeat `--target` to ship both ABIs in a single APK; t
 ```bash
 python3 tools/package_android.py --target aarch64-linux-android --target armv7-linux-androideabi
 ```
-This audits the source tree, generates `AndroidManifest.xml`, `com.lookingglass.alice.MainActivity`, `quad_native.QuadNative`, and `INSTALL-ANDROID.txt`, compiles `liblooking_glass.so` (`--crate-type=cdylib`) with an 8 MiB native main-thread stack (`-Wl,-z,stack-size=8388608`) and exported `miniquad` JNI symbols, bundles `libc++_shared.so` from the NDK sysroot, and:
+This audits the source tree, generates `AndroidManifest.xml`, `lookingglass.ptbr.MainActivity`, `quad_native.QuadNative`, and `INSTALL-ANDROID.txt`, compiles `liblooking_glass.so` (`--crate-type=cdylib`) with an 8 MiB native main-thread stack (`-Wl,-z,stack-size=8388608`) and exported `miniquad` JNI symbols, bundles `libc++_shared.so` from the NDK sysroot, and:
 - When the Android SDK (`ANDROID_HOME` / `ANDROID_SDK_ROOT` with `build-tools` and `platforms`) and JDK (`javac`, `keytool`) are present, automatically compiles, aligns, and signs `target/android-dist/LookingGlass-v<version>-android.apk`.
 - Writes `target/android-dist/LookingGlass-v<version>-android-bundle.zip` and `target/android-dist/SHA256SUMS.txt`.
 

@@ -35,7 +35,7 @@ opt-level = 1
 lto = "thin"
 
 [package.metadata.android]
-package_name = "com.lookingglass.alice"
+package_name = "lookingglass.ptbr"
 label = "Looking Glass"
 version_code = 3200
 version_name = "0.32.0"

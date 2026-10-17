@@ -12,7 +12,7 @@ use std::{
 mod controller_map;
 mod i18n;
 
-pub const PACKAGE_ID: &str = "com.lookingglass.alice";
+pub const PACKAGE_ID: &str = "lookingglass.ptbr";
 
 /// Initialize the Android NDK context (`JavaVM` + `Activity` handle) required by
 /// `cpal` / `oboe` / `rodio` before any audio output stream is opened.
@@ -198,7 +198,7 @@ static ANDROID_PAD_AXES_L: std::sync::atomic::AtomicU32 = std::sync::atomic::Ato
 static ANDROID_PAD_AXES_R: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[no_mangle]
-pub extern "C" fn Java_com_lookingglass_alice_MainActivity_nativeOnGamepad(
+pub extern "C" fn Java_lookingglass_ptbr_MainActivity_nativeOnGamepad(
     _env: *mut std::ffi::c_void,
     _class: *mut std::ffi::c_void,
     connected: i32,
